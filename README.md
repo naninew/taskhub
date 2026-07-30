@@ -4,125 +4,137 @@
 
 TaskHub là hệ thống quản lý công việc (Task Management API) được xây dựng trên nền tảng FastAPI theo kiến trúc phân tầng (Layered Architecture). Dự án được thiết kế theo mô hình phát triển tăng trưởng (incremental delivery), trong đó khung ứng dụng và cấu trúc hệ thống được thiết lập chuẩn hoá ngay từ giai đoạn đầu.
 
-Trạng thái hiện tại: Giai đoạn 1 - Core Setup & Architecture. Đã hoàn thành cấu trúc ứng dụng phân tầng, khởi tạo FastAPI lifespan, triển khai resource Label in-memory và tích hợp bộ kiểm thử tự động pytest.
+**Trạng thái hiện tại: Giai đoạn 2 — Database: SQLAlchemy 2.x & Alembic.** Đã hoàn thành 8 ORM models, `BaseRepository[T]` generic, Alembic migration, chuyển Label repository từ in-memory sang DB thật, regression test Ngày 1 vẫn pass.
 
 ## 2. Công nghệ sử dụng
 
 - Web Framework: FastAPI (>= 0.111.0)
 - ASGI Server: Uvicorn
+- ORM: SQLAlchemy 2.x (async)
+- Migration: Alembic
+- Database: SQLite async (`aiosqlite`) mặc định; PostgreSQL (`asyncpg`) qua biến môi trường
 - Data Validation & Serialization: Pydantic v2
 - Configuration Management: pydantic-settings
 - Testing Framework: Pytest, pytest-asyncio, HTTPX
 - Runtime Environment: Python >= 3.10
 
-## 3. Cấu trúc ứng dụng (Layered Architecture)
+## 3. DB Schema (8 bảng)
 
-Dự án áp dụng mô hình kiến trúc phân tầng tách biệt giữa các thành phần xử lý:
+| # | Bảng | Mô tả |
+|---|---|---|
+| 1 | `users` | id, email, full_name, hashed_password, role, is_active, created_at |
+| 2 | `workspaces` | id, name, owner_id, created_at |
+| 3 | `workspace_members` | workspace_id, user_id, role |
+| 4 | `projects` | id, workspace_id, name, description, status, created_at |
+| 5 | `tasks` | id, project_id, assignee_id, title, description, status, priority, due_date, created_by, created_at |
+| 6 | `labels` | id, project_id, name, color, created_at |
+| 7 | `task_labels` | task_id, label_id |
+| 8 | `comments` | id, task_id, author_id, content, created_at |
+
+**Enums:** `UserRole`, `WorkspaceMemberRole`, `ProjectStatus`, `TaskStatus`, `TaskPriority` (xem `app/models/enums.py`).
+
+**Quan hệ chính:** User 1—N Workspace · Workspace N—N User (qua workspace_members) · Workspace 1—N Project · Project 1—N Task/Label · Task N—N Label · Task 1—N Comment.
+
+## 4. Cấu trúc ứng dụng (Layered Architecture)
 
 ```
 taskhub/
+├── alembic/                     # Alembic migration scripts
+│   ├── env.py                   # Async migration runner
+│   └── versions/                # Migration files (init schema)
+├── alembic.ini
 ├── app/
-│   ├── main.py                  # Khởi tạo ứng dụng FastAPI và lifespan handler
-│   ├── core/                    # Cấu hình hệ thống, logging, custom exceptions
-│   │   ├── config.py
-│   │   ├── logging.py
-│   │   ├── exceptions.py
-│   │   └── security.py
-│   ├── api/                     # Tầng giao diện API (Routing & Dependencies)
-│   │   └── v1/
-│   │       ├── router.py        # Router tổng hợp cho API v1
-│   │       ├── deps.py          # Dependency injection (get_db stub, services)
-│   │       └── endpoints/       # Các controller theo tài nguyên (labels.py)
-│   ├── schemas/                 # Pydantic v2 Data Transfer Objects (label.py)
-│   ├── repositories/            # Tầng giao tiếp dữ liệu (label_repository.py)
-│   ├── services/                # Tầng nghiệp vụ xử lý logic (label_service.py)
-│   ├── models/                  # ORM models (cho các giai đoạn tiếp theo)
-│   ├── db/                      # Quản lý kết nối database
-│   ├── middleware/              # Middleware xử lý request/response
-│   └── tasks/                   # Quản lý tác vụ chạy ngầm
-├── tests/                       # Thư mục chứa các kịch bản kiểm thử tự động
-│   └── day01/
-│       └── test_labels.py       # Integration tests cho Label CRUD
-├── requirements.txt             # Danh sách gói phụ thuộc của dự án
-├── pyproject.toml               # Cấu hình công cụ và pytest
-└── README.md                    # Tài liệu kỹ thuật của dự án
+│   ├── main.py
+│   ├── core/                    # config, logging, exceptions, security
+│   ├── api/v1/
+│   │   ├── router.py
+│   │   ├── deps.py              # get_db() → AsyncSession thật
+│   │   └── endpoints/           # labels.py (+ stubs cho ngày sau)
+│   ├── schemas/                 # Pydantic v2 DTOs
+│   ├── models/                  # 8 SQLAlchemy ORM models + enums
+│   ├── repositories/
+│   │   ├── base.py              # BaseRepository[T] generic async CRUD
+│   │   └── label_repository.py  # SQLAlchemy (thay in-memory Ngày 1)
+│   ├── services/
+│   └── db/
+│       ├── base.py              # DeclarativeBase
+│       └── session.py           # async engine + sessionmaker
+├── tests/
+│   ├── conftest.py              # DB test fixtures (in-memory SQLite)
+│   ├── day01/test_labels.py     # Regression API Label
+│   └── day02/test_labels_db.py  # DB session, BaseRepository, LabelRepository
+├── docs/day-02-database-sqlalchemy-alembic/test-output/
+├── requirements.txt
+├── pyproject.toml
+└── README.md
 ```
 
-## 4. Hướng dẫn khởi tạo môi trường (Virtual Environment)
+## 5. Hướng dẫn khởi tạo môi trường
 
-### 4.1. Khởi tạo môi trường ảo Python
-
-Truy cập vào thư mục gốc của dự án và khởi tạo môi trường ảo `venv`:
-
-Trên Linux / macOS:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
+### 5.1. Virtual environment
 
 Trên Windows (PowerShell):
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Trên Windows (Command Prompt):
-```cmd
-python -m venv .venv
-.\.venv\Scripts\activate.bat
-```
-
-### 4.2. Cài đặt các gói phụ thuộc
-
-Cập nhật `pip` và cài đặt các thư viện phụ thuộc từ file `requirements.txt`:
-```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## 5. Hướng dẫn chạy ứng dụng (Deployment & Development)
+### 5.2. Cấu hình Database
 
-### 5.1. Khởi chạy máy chủ phát triển (Development Server)
+Mặc định dùng SQLite async (không cần cài DB server):
+```
+DATABASE_URL=sqlite+aiosqlite:///./taskhub.db
+```
 
-Sử dụng `uvicorn` để khởi chạy máy chủ phát triển ở cổng 8000:
+PostgreSQL (tuỳ chọn):
+```
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/taskhub
+```
+
+## 6. Alembic Migration
+
+```bash
+# Tạo/chạy migration
+python -m alembic upgrade head
+
+# Tạo migration mới (khi thay đổi models)
+python -m alembic revision --autogenerate -m "mo ta thay doi"
+python -m alembic upgrade head
+```
+
+## 7. Chạy ứng dụng
+
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 5.2. Truy cập tài liệu giao diện API
+- Swagger UI: http://127.0.0.1:8000/docs
+- ReDoc: http://127.0.0.1:8000/redoc
 
-Sau khi máy chủ khởi chạy thành công, truy cập các địa chỉ sau để xem tài liệu chi tiết:
-- Swagger UI Document: http://127.0.0.1:8000/docs
-- ReDoc Document: http://127.0.0.1:8000/redoc
-- OpenAPI Schema JSON: http://127.0.0.1:8000/api/v1/openapi.json
+## 8. API Endpoints (Label — Giai đoạn 1+2)
 
-## 6. Danh mục API Endpoints (Giai đoạn 1 - Label Resource)
+Gốc đường dẫn: `/api/v1`
 
-Gốc đường dẫn API: `/api/v1`
+| HTTP Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/v1/projects/{project_id}/labels` | Tạo Label |
+| GET | `/api/v1/projects/{project_id}/labels` | Danh sách Label |
+| GET | `/api/v1/projects/{project_id}/labels/{label_id}` | Chi tiết Label |
+| PATCH | `/api/v1/projects/{project_id}/labels/{label_id}` | Cập nhật Label |
+| DELETE | `/api/v1/projects/{project_id}/labels/{label_id}` | Xoá Label |
 
-| HTTP Method | Endpoint | Mô tả | Mã trả về |
-|---|---|---|---|
-| GET | `/` | Kiểm tra trạng thái ứng dụng | 200 OK |
-| POST | `/api/v1/projects/{project_id}/labels` | Tạo mới Label cho project | 201 Created |
-| GET | `/api/v1/projects/{project_id}/labels` | Truy vấn danh sách Label của project | 200 OK |
-| GET | `/api/v1/projects/{project_id}/labels/{label_id}` | Truy vấn chi tiết Label theo ID | 200 OK / 404 Not Found |
-| PATCH | `/api/v1/projects/{project_id}/labels/{label_id}` | Cập nhật thông tin Label | 200 OK / 400 Bad Request / 404 Not Found |
-| DELETE | `/api/v1/projects/{project_id}/labels/{label_id}` | Xoá Label khỏi project | 200 OK / 404 Not Found |
+**Business rule:** Tên Label không được trùng trong cùng project → `400 Bad Request`.
 
-### Quy định nghiệp vụ (Business Logic Rules):
-- Tên của Label trong cùng một project không được phép trùng lặp. Mọi thao tác khởi tạo hoặc cập nhật vi phạm quy định này sẽ nhận phản hồi mã lỗi `400 Bad Request`.
-- Các truy vấn tới `label_id` không tồn tại trong project sẽ trả về mã lỗi `404 Not Found`.
+## 9. Kiểm thử
 
-## 7. Quy trình thực thi kiểm thử tự động (Testing)
-
-Dự án tích hợp kịch bản kiểm thử tự động toàn bộ luồng CRUD bằng `pytest` và `httpx.AsyncClient`.
-
-Chạy toàn bộ bài test:
 ```bash
-pytest tests/day01 -v
+# Regression Ngày 1 + test mới Ngày 2
+python -m pytest tests/day01 tests/day02 -v
+
+# Xuất log
+python -m pytest tests/day01 tests/day02 -v > docs/day-02-database-sqlalchemy-alembic/test-output/20260730-pytest.log
 ```
 
-Xuất kết quả kiểm thử ra file log lưu trữ:
-```bash
-pytest tests/day01 -v > docs/day-01-core-setup-architecture/test-output/20260729-pytest.log
-```
+Kết quả test mới nhất: **15 passed** (7 day01 + 8 day02). Log chi tiết tại `docs/day-02-database-sqlalchemy-alembic/test-output/`.

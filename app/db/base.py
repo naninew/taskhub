@@ -1,3 +1,7 @@
-# [Ngày 1] Stub base declarative model cho SQLAlchemy (sẽ bổ sung ở Ngày 2)
+# [Ngày 2] Declarative base class cho các SQLAlchemy models
 
-# TODO Ngày 2: Bổ sung Base declarative class
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
