@@ -16,6 +16,7 @@ from app.models.task import Task
 from app.models.label import Label
 from app.models.task_label import TaskLabel
 from app.models.comment import Comment
+from app.models.refresh_token import RefreshToken
 
 __all__ = [
     "Base",
@@ -32,4 +33,5 @@ __all__ = [
     "Label",
     "TaskLabel",
     "Comment",
+    "RefreshToken",
 ]

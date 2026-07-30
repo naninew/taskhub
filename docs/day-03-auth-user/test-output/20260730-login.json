@@ -1,0 +1,8 @@
+{
+  "status_code": 200,
+  "body": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzg1NDA5ODM4LCJ0eXBlIjoiYWNjZXNzIn0.TCLE6Ue5aKJI6-3SgNXiDdE28DFsilyONdyJU1cu1Dg",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzg2MDEzNzM4LCJ0eXBlIjoicmVmcmVzaCIsImp0aSI6IjAzNmFmZmQzLWYzZWItNDk2Ni05MDVhLWYwMGI5ZjlhODJlNyJ9.JlYGcuIPKo6XE2jeCiLyQEH784oAZf49a9E7_LP1wJ0",
+    "token_type": "bearer"
+  }
+}

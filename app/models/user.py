@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.workspace_member import WorkspaceMember
     from app.models.task import Task
     from app.models.comment import Comment
+    from app.models.refresh_token import RefreshToken
 
 
 class User(Base):
@@ -32,3 +33,6 @@ class User(Base):
     assigned_tasks: Mapped[List["Task"]] = relationship("Task", foreign_keys="Task.assignee_id", back_populates="assignee")
     created_tasks: Mapped[List["Task"]] = relationship("Task", foreign_keys="Task.created_by", back_populates="creator")
     comments: Mapped[List["Comment"]] = relationship("Comment", back_populates="author", cascade="all, delete-orphan")
+    refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
