@@ -1,8 +1,9 @@
 # [Ngày 1] Dependency injection cho API v1
 # [Ngày 2] thay stub Ngày 1: get_db() giờ yield AsyncSession thật từ SQLAlchemy
 # [Ngày 3] thêm get_current_user — decode Bearer JWT, tra user_repository
+# [Ngày 4] thêm require_workspace_role — dependency factory kiểm tra RBAC workspace
 
-from typing import Annotated, AsyncGenerator
+from typing import Annotated, AsyncGenerator, Callable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -10,15 +11,21 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import ForbiddenException
 from app.core.security import decode_token
 from app.db.session import AsyncSessionLocal
+from app.models.enums import WorkspaceMemberRole
 from app.models.user import User
+from app.models.workspace_member import WorkspaceMember
 from app.repositories.label_repository import label_repository
 from app.repositories.refresh_token_repository import refresh_token_repository
 from app.repositories.user_repository import user_repository
+from app.repositories.workspace_member_repository import workspace_member_repository
+from app.repositories.workspace_repository import workspace_repository
 from app.services.auth_service import AuthService
 from app.services.label_service import LabelService
 from app.services.user_service import UserService
+from app.services.workspace_service import WorkspaceService
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login"
@@ -87,3 +94,44 @@ def get_auth_service() -> AuthService:
 def get_user_service() -> UserService:
     """Dependency injection trả về instance UserService."""
     return UserService(user_repo=user_repository)
+
+
+def get_workspace_service() -> WorkspaceService:
+    """[Ngày 4] Dependency injection trả về instance WorkspaceService."""
+    return WorkspaceService(
+        workspace_repo=workspace_repository,
+        member_repo=workspace_member_repository,
+        user_repo=user_repository,
+    )
+
+
+def require_workspace_role(
+    *roles: WorkspaceMemberRole,
+) -> Callable[..., WorkspaceMember]:
+    """[Ngày 4] Factory dependency — kiểm tra current_user có role phù hợp trong workspace."""
+
+    allowed_roles = set(roles)
+
+    async def _check_role(
+        workspace_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> WorkspaceMember:
+        membership = await workspace_member_repository.get_membership(
+            db,
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+        )
+        if membership is None:
+            raise ForbiddenException(
+                message="Not a workspace member",
+                detail="You must be a member to access this workspace.",
+            )
+        if membership.role not in allowed_roles:
+            raise ForbiddenException(
+                message="Insufficient workspace role",
+                detail=f"Required role(s): {[r.value for r in allowed_roles]}.",
+            )
+        return membership
+
+    return _check_role

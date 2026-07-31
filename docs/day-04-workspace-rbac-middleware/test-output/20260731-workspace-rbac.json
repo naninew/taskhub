@@ -1,0 +1,20 @@
+{
+  "login": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZXhwIjoxNzg1NDkzMzIwLCJ0eXBlIjoiYWNjZXNzIn0.BWhLzL2hewHGe9hD2H2IahIOWcODOqiLyx8fR6fIaD8",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZXhwIjoxNzg2MDk3MjIwLCJ0eXBlIjoicmVmcmVzaCIsImp0aSI6ImM3NzQ3MzcyLTAzN2UtNDdiZi1hNDVkLWI3YTYyOTk3MTcxYiJ9.__0ydbQtYcba6ZMaAO4KWN-M6uIO1Tox-H-_6276tMk",
+    "token_type": "bearer"
+  },
+  "create_workspace": {
+    "id": 2,
+    "name": "Team A",
+    "owner_id": 2,
+    "created_at": "2026-07-31T10:07:00"
+  },
+  "invite_member": {
+    "workspace_id": 2,
+    "user_id": 3,
+    "role": "EDITOR",
+    "email": "demo-member@example.com",
+    "full_name": "Demo Member"
+  }
+}

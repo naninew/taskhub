@@ -4,7 +4,7 @@
 
 TaskHub là hệ thống quản lý công việc (Task Management API) được xây dựng trên nền tảng FastAPI theo kiến trúc phân tầng (Layered Architecture). Dự án được thiết kế theo mô hình phát triển tăng trưởng (incremental delivery), trong đó khung ứng dụng và cấu trúc hệ thống được thiết lập chuẩn hoá ngay từ giai đoạn đầu.
 
-**Trạng thái hiện tại: Giai đoạn 3 — Authentication & User Management.** Đã hoàn thành JWT auth (access + refresh token), logout revoke thật sự qua bảng `refresh_tokens`, user profile CRUD, dependency `get_current_user` sẵn sàng cho RBAC Ngày 4. Regression test Ngày 1–2 vẫn pass.
+**Trạng thái hiện tại: Giai đoạn 4 — Workspace, RBAC & Middleware/Exception Handling.** Đã hoàn thành Workspace CRUD cơ bản (tạo/lấy), invite/remove member với phân quyền OWNER/EDITOR/VIEWER, global exception handler JSON thống nhất, middleware log request. Regression test Ngày 1–3 vẫn pass.
 
 ## 2. Công nghệ sử dụng
 
@@ -25,7 +25,7 @@ TaskHub là hệ thống quản lý công việc (Task Management API) được 
 |---|---|---|
 | 1 | `users` | id, email, full_name, hashed_password, role, is_active, created_at |
 | 2 | `workspaces` | id, name, owner_id, created_at |
-| 3 | `workspace_members` | workspace_id, user_id, role |
+| 3 | `workspace_members` | workspace_id, user_id, role (OWNER/EDITOR/VIEWER) |
 | 4 | `projects` | id, workspace_id, name, description, status, created_at |
 | 5 | `tasks` | id, project_id, assignee_id, title, description, status, priority, due_date, created_by, created_at |
 | 6 | `labels` | id, project_id, name, color, created_at |
@@ -46,35 +46,36 @@ taskhub/
 │   └── versions/                # init schema + refresh_tokens (Ngày 3)
 ├── alembic.ini
 ├── app/
-│   ├── main.py
-│   ├── core/                    # config, logging, exceptions, security (JWT/bcrypt)
+│   ├── main.py                  # lifespan + exception handler + LoggingMiddleware (Ngày 4)
+│   ├── core/                    # config, logging, exceptions (AppException), security
+│   ├── middleware/
+│   │   └── logging_middleware.py  # log method/path/status/latency (Ngày 4)
 │   ├── api/v1/
-│   │   ├── router.py            # auth, users, labels
-│   │   ├── deps.py              # get_db, get_current_user, service factories
-│   │   └── endpoints/           # auth.py, users.py, labels.py (+ stubs ngày sau)
-│   ├── schemas/                 # auth.py, user.py, label.py
+│   │   ├── router.py            # auth, users, workspaces, labels
+│   │   ├── deps.py              # get_db, get_current_user, require_workspace_role (Ngày 4)
+│   │   └── endpoints/           # auth, users, workspaces (Ngày 4), labels
+│   ├── schemas/                 # auth, user, workspace (Ngày 4), label
 │   ├── models/                  # 9 ORM models + enums
 │   ├── repositories/
 │   │   ├── base.py              # BaseRepository[T] generic async CRUD
-│   │   ├── label_repository.py
-│   │   ├── user_repository.py   # (Ngày 3)
-│   │   └── refresh_token_repository.py  # (Ngày 3)
+│   │   ├── workspace_repository.py          # (Ngày 4)
+│   │   ├── workspace_member_repository.py     # (Ngày 4)
+│   │   └── ...
 │   ├── services/
-│   │   ├── label_service.py
-│   │   ├── auth_service.py      # (Ngày 3)
-│   │   └── user_service.py      # (Ngày 3)
+│   │   ├── workspace_service.py # create/invite/remove member (Ngày 4)
+│   │   └── ...
 │   └── db/
-│       ├── base.py              # DeclarativeBase
-│       └── session.py           # async engine + sessionmaker
 ├── tests/
-│   ├── conftest.py              # DB test fixtures (in-memory SQLite)
-│   ├── day01/test_labels.py     # Regression API Label
-│   ├── day02/test_labels_db.py  # DB session, BaseRepository, LabelRepository
-│   └── day03/test_auth.py       # Auth E2E: register→login→me→refresh→logout
+│   ├── conftest.py
+│   ├── day01/test_labels.py
+│   ├── day02/test_labels_db.py
+│   ├── day03/test_auth.py
+│   └── day04/                   # RBAC + logging middleware (Ngày 4)
 ├── docs/
 │   ├── day-01-core-setup-architecture/test-output/
 │   ├── day-02-database-sqlalchemy-alembic/test-output/
-│   └── day-03-auth-user/test-output/
+│   ├── day-03-auth-user/test-output/
+│   └── day-04-workspace-rbac-middleware/test-output/
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
@@ -110,7 +111,7 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/taskhub
 ## 6. Alembic Migration
 
 ```bash
-# Chạy migration (bao gồm bảng refresh_tokens Ngày 3)
+# Chạy migration (schema Ngày 2 + refresh_tokens Ngày 3)
 python -m alembic upgrade head
 
 # Tạo migration mới (khi thay đổi models)
@@ -126,6 +127,8 @@ uvicorn app.main:app --reload --port 8000
 
 - Swagger UI: http://127.0.0.1:8000/docs (có nút **Authorize** Bearer token)
 - ReDoc: http://127.0.0.1:8000/redoc
+
+Mỗi request được ghi log dạng: `Request: method=... path=... status_code=... latency_ms=...` (Ngày 4).
 
 ## 8. API Endpoints
 
@@ -148,6 +151,21 @@ Gốc đường dẫn: `/api/v1`
 | PATCH | `/api/v1/users/me` | Cập nhật profile (full_name, email) | Bearer |
 | POST | `/api/v1/users/me/change-password` | Đổi mật khẩu (yêu cầu mật khẩu cũ) | Bearer |
 
+### Workspace (Ngày 4)
+
+| HTTP Method | Endpoint | Mô tả | Auth / RBAC |
+|---|---|---|---|
+| POST | `/api/v1/workspaces` | Tạo workspace (creator → OWNER) | Bearer |
+| GET | `/api/v1/workspaces/{id}` | Chi tiết workspace | Bearer + member |
+| POST | `/api/v1/workspaces/{id}/members` | Mời member (email + role) | Bearer + OWNER |
+| DELETE | `/api/v1/workspaces/{id}/members/{user_id}` | Xoá member | Bearer + OWNER |
+
+**Business rules Workspace:**
+- Người tạo workspace tự động là OWNER trong `workspace_members`.
+- Chỉ OWNER được mời/xoá member.
+- Workspace phải luôn có ít nhất 1 OWNER — không xoá được OWNER cuối cùng → `409 Conflict`.
+- EDITOR/VIEWER không có quyền quản lý member → `403 Forbidden`.
+
 ### Label (Ngày 1+2)
 
 | HTTP Method | Endpoint | Mô tả |
@@ -160,20 +178,52 @@ Gốc đường dẫn: `/api/v1`
 
 **Business rule Label:** Tên Label không được trùng trong cùng project → `400 Bad Request`.
 
-**Auth flow:** Refresh token được lưu DB; logout đánh dấu `revoked=True` — gọi refresh sau logout trả `401`.
+## 9. Exception Handling (Ngày 4)
 
-## 9. Kiểm thử
+Mọi lỗi nghiệp vụ kế thừa `AppException` trả JSON thống nhất:
 
-```bash
-# Regression Ngày 1 + 2 + test mới Ngày 3
-python -m pytest tests/day01 tests/day02 tests/day03 -v
-
-# Xuất log
-python -m pytest tests/day01 tests/day02 tests/day03 -v > docs/day-03-auth-user/test-output/YYYYMMDD-pytest.log
+```json
+{
+  "code": "FORBIDDEN",
+  "message": "Insufficient workspace role",
+  "detail": "Required role(s): ['OWNER']."
+}
 ```
 
-Kết quả test mới nhất: **27 passed** (7 day01 + 8 day02 + 12 day03). Log chi tiết tại `docs/day-03-auth-user/test-output/`.
+| Exception | HTTP Status |
+|---|---|
+| `NotFoundException` | 404 |
+| `ForbiddenException` | 403 |
+| `ConflictException` | 409 |
+| `UnauthorizedException` | 401 |
 
-## 10. Bàn giao cho Ngày 4
+Auth endpoints (Ngày 3) vẫn dùng `HTTPException` FastAPI mặc định — không thay đổi logic auth/label.
 
-- `get_current_user` đã sẵn sàng trong `app/api/v1/deps.py` — Ngày 4 dùng để xây `get_current_active_user`, `require_workspace_role(...)` cho RBAC workspace.
+## 10. RBAC — `require_workspace_role` (Ngày 4)
+
+Dependency factory trong `app/api/v1/deps.py`:
+
+```python
+Depends(require_workspace_role(WorkspaceMemberRole.OWNER))
+Depends(require_workspace_role(WorkspaceMemberRole.OWNER, WorkspaceMemberRole.EDITOR, WorkspaceMemberRole.VIEWER))
+```
+
+Ngày 5 sẽ tái sử dụng cho Project/Task — ví dụ VIEWER chỉ đọc, EDITOR được tạo/sửa task.
+
+## 11. Kiểm thử
+
+```bash
+# Regression Ngày 1–4
+python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 -v
+
+# Xuất log
+python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 -v > docs/day-04-workspace-rbac-middleware/test-output/YYYYMMDD-pytest.log
+```
+
+Kết quả test mới nhất: **32 passed** (7 day01 + 8 day02 + 12 day03 + 5 day04). Log chi tiết tại `docs/day-04-workspace-rbac-middleware/test-output/`.
+
+## 12. Bàn giao cho Ngày 5
+
+- `require_workspace_role(*roles)` sẵn sàng cho Project/Task CRUD trong workspace.
+- `AppException` + global handler dùng chung cho lỗi nghiệp vụ mới.
+- `LoggingMiddleware` ghi log mọi request — có thể mở rộng thêm correlation ID ở Ngày 7.
