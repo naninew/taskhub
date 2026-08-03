@@ -4,7 +4,7 @@
 
 TaskHub là hệ thống quản lý công việc (Task Management API) được xây dựng trên nền tảng FastAPI theo kiến trúc phân tầng (Layered Architecture). Dự án được thiết kế theo mô hình phát triển tăng trưởng (incremental delivery), trong đó khung ứng dụng và cấu trúc hệ thống được thiết lập chuẩn hoá ngay từ giai đoạn đầu.
 
-**Trạng thái hiện tại: Giai đoạn 4 — Workspace, RBAC & Middleware/Exception Handling.** Đã hoàn thành Workspace CRUD cơ bản (tạo/lấy), invite/remove member với phân quyền OWNER/EDITOR/VIEWER, global exception handler JSON thống nhất, middleware log request. Regression test Ngày 1–3 vẫn pass.
+**Trạng thái hiện tại: Giai đoạn 5 — Project & Task CRUD.** Đã hoàn thành Project CRUD trong workspace (tạo/cập nhật/archive), Task CRUD trong project (assign, đổi status theo state machine, priority/due_date), dependency `require_project_access` tái sử dụng RBAC Ngày 4. Regression test Ngày 1–4 vẫn pass.
 
 ## 2. Công nghệ sử dụng
 
@@ -51,18 +51,21 @@ taskhub/
 │   ├── middleware/
 │   │   └── logging_middleware.py  # log method/path/status/latency (Ngày 4)
 │   ├── api/v1/
-│   │   ├── router.py            # auth, users, workspaces, labels
-│   │   ├── deps.py              # get_db, get_current_user, require_workspace_role (Ngày 4)
-│   │   └── endpoints/           # auth, users, workspaces (Ngày 4), labels
-│   ├── schemas/                 # auth, user, workspace (Ngày 4), label
+│   │   ├── router.py            # auth, users, workspaces, projects, tasks, labels
+│   │   ├── deps.py              # get_db, get_current_user, require_workspace_role (Ngày 4), require_project_access (Ngày 5)
+│   │   └── endpoints/           # auth, users, workspaces, projects (Ngày 5), tasks (Ngày 5), labels
+│   ├── schemas/                 # auth, user, workspace, project (Ngày 5), task (Ngày 5), label
 │   ├── models/                  # 9 ORM models + enums
 │   ├── repositories/
 │   │   ├── base.py              # BaseRepository[T] generic async CRUD
-│   │   ├── workspace_repository.py          # (Ngày 4)
-│   │   ├── workspace_member_repository.py     # (Ngày 4)
+│   │   ├── project_repository.py    # (Ngày 5)
+│   │   ├── task_repository.py       # (Ngày 5)
+│   │   ├── workspace_repository.py  # (Ngày 4)
 │   │   └── ...
 │   ├── services/
-│   │   ├── workspace_service.py # create/invite/remove member (Ngày 4)
+│   │   ├── project_service.py   # create/update/archive (Ngày 5)
+│   │   ├── task_service.py      # CRUD, assign, status machine (Ngày 5)
+│   │   ├── workspace_service.py # (Ngày 4)
 │   │   └── ...
 │   └── db/
 ├── tests/
@@ -70,12 +73,14 @@ taskhub/
 │   ├── day01/test_labels.py
 │   ├── day02/test_labels_db.py
 │   ├── day03/test_auth.py
-│   └── day04/                   # RBAC + logging middleware (Ngày 4)
+│   ├── day04/                   # RBAC + logging middleware (Ngày 4)
+│   └── day05/test_project_task.py  # Project & Task CRUD (Ngày 5)
 ├── docs/
 │   ├── day-01-core-setup-architecture/test-output/
 │   ├── day-02-database-sqlalchemy-alembic/test-output/
 │   ├── day-03-auth-user/test-output/
-│   └── day-04-workspace-rbac-middleware/test-output/
+│   ├── day-04-workspace-rbac-middleware/test-output/
+│   └── day-05-project-task-crud/test-output/
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
@@ -166,6 +171,41 @@ Gốc đường dẫn: `/api/v1`
 - Workspace phải luôn có ít nhất 1 OWNER — không xoá được OWNER cuối cùng → `409 Conflict`.
 - EDITOR/VIEWER không có quyền quản lý member → `403 Forbidden`.
 
+### Project (Ngày 5)
+
+| HTTP Method | Endpoint | Mô tả | Auth / RBAC |
+|---|---|---|---|
+| POST | `/api/v1/workspaces/{id}/projects` | Tạo project | Bearer + OWNER/EDITOR |
+| GET | `/api/v1/workspaces/{id}/projects` | Danh sách project | Bearer + member |
+| GET | `/api/v1/workspaces/{workspace_id}/projects/{id}` | Chi tiết project | Bearer + member |
+| PATCH | `/api/v1/workspaces/{workspace_id}/projects/{id}` | Cập nhật project | Bearer + OWNER/EDITOR |
+| PATCH | `/api/v1/workspaces/{workspace_id}/projects/{id}/archive` | Archive project | Bearer + OWNER/EDITOR |
+
+**Business rules Project:**
+- Archive không xoá bản ghi — chỉ đổi `status = ARCHIVED`.
+- List mặc định chỉ trả project `ACTIVE`; dùng query `?include_archived=true` để xem archived.
+- VIEWER chỉ đọc — không tạo/sửa/archive project → `403 Forbidden`.
+- Không cập nhật project đã archived → `409 Conflict`.
+
+### Task (Ngày 5)
+
+| HTTP Method | Endpoint | Mô tả | Auth / RBAC |
+|---|---|---|---|
+| POST | `/api/v1/projects/{id}/tasks` | Tạo task | Bearer + OWNER/EDITOR |
+| GET | `/api/v1/projects/{id}/tasks` | Danh sách task | Bearer + member |
+| PATCH | `/api/v1/tasks/{id}` | Cập nhật task (assign, status, priority, due_date) | Bearer + OWNER/EDITOR |
+| DELETE | `/api/v1/tasks/{id}` | Xoá task | Bearer + OWNER/EDITOR |
+
+**Business rules Task:**
+- Tạo task mặc định `status=TODO`, `priority=MEDIUM`.
+- `assignee_id` phải là thành viên workspace chứa project → nếu không → `409 Conflict`.
+- State machine chuyển status:
+  - `TODO` → `IN_PROGRESS`
+  - `IN_PROGRESS` → `IN_REVIEW`, `TODO`
+  - `IN_REVIEW` → `DONE`, `IN_PROGRESS`
+  - `DONE` → không chuyển tiếp (OWNER có thể reopen → `IN_PROGRESS`)
+- Chuyển status không hợp lệ → `409 Conflict`.
+
 ### Label (Ngày 1+2)
 
 | HTTP Method | Endpoint | Mô tả |
@@ -199,7 +239,9 @@ Mọi lỗi nghiệp vụ kế thừa `AppException` trả JSON thống nhất:
 
 Auth endpoints (Ngày 3) vẫn dùng `HTTPException` FastAPI mặc định — không thay đổi logic auth/label.
 
-## 10. RBAC — `require_workspace_role` (Ngày 4)
+## 10. RBAC (Ngày 4 + Ngày 5)
+
+### `require_workspace_role` (Ngày 4)
 
 Dependency factory trong `app/api/v1/deps.py`:
 
@@ -208,22 +250,31 @@ Depends(require_workspace_role(WorkspaceMemberRole.OWNER))
 Depends(require_workspace_role(WorkspaceMemberRole.OWNER, WorkspaceMemberRole.EDITOR, WorkspaceMemberRole.VIEWER))
 ```
 
-Ngày 5 sẽ tái sử dụng cho Project/Task — ví dụ VIEWER chỉ đọc, EDITOR được tạo/sửa task.
+### `require_project_access` (Ngày 5)
+
+Tra `project_id` → lấy `workspace_id` → kiểm tra membership + role:
+
+```python
+Depends(require_project_access(WorkspaceMemberRole.OWNER, WorkspaceMemberRole.EDITOR))
+```
+
+Phân quyền Project/Task:
+- **OWNER / EDITOR**: tạo/sửa project, task, assign, đổi status.
+- **VIEWER**: chỉ đọc (GET list/detail).
 
 ## 11. Kiểm thử
 
 ```bash
-# Regression Ngày 1–4
-python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 -v
+# Regression Ngày 1–5
+python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 tests/day05 -v
 
 # Xuất log
-python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 -v > docs/day-04-workspace-rbac-middleware/test-output/YYYYMMDD-pytest.log
+python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 tests/day05 -v > docs/day-05-project-task-crud/test-output/YYYYMMDD-pytest.log
 ```
 
-Kết quả test mới nhất: **32 passed** (7 day01 + 8 day02 + 12 day03 + 5 day04). Log chi tiết tại `docs/day-04-workspace-rbac-middleware/test-output/`.
+Kết quả test mới nhất: **36 passed** (7 day01 + 8 day02 + 12 day03 + 5 day04 + 4 day05). Log chi tiết tại `docs/day-05-project-task-crud/test-output/`.
 
-## 12. Bàn giao cho Ngày 5
+## 12. Bàn giao cho Ngày 6
 
-- `require_workspace_role(*roles)` sẵn sàng cho Project/Task CRUD trong workspace.
-- `AppException` + global handler dùng chung cho lỗi nghiệp vụ mới.
-- `LoggingMiddleware` ghi log mọi request — có thể mở rộng thêm correlation ID ở Ngày 7.
+- `project_repository` / `task_repository` sẵn sàng để thêm Label gán task, Comment và bộ lọc/pagination trên `GET /projects/{id}/tasks`.
+- `GET /projects/{id}/tasks` hiện trả toàn bộ task — Ngày 6 sẽ bổ sung filter (status, priority, assignee) và pagination.

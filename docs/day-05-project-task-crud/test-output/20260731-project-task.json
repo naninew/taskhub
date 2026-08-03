@@ -1,0 +1,61 @@
+{
+  "register": {
+    "id": 1,
+    "email": "demo-day05@example.com",
+    "full_name": "Demo Day05",
+    "role": "MEMBER",
+    "is_active": true,
+    "created_at": "2026-07-31T10:34:49"
+  },
+  "login": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzg1NDk0OTg5LCJ0eXBlIjoiYWNjZXNzIn0.8qySwaNyaVB7PB0KwWFy1Pns5XlYHP4IuaA_zc6DpEw",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzg2MDk4ODg5LCJ0eXBlIjoicmVmcmVzaCIsImp0aSI6ImFlZGYwOTdjLWRhZWMtNGRjZS1iZjE2LThkYmVkZTE0YTY1ZCJ9.j5Zlc3WHh-trSlCUlFYr5cTR2WnOQpeijRRC5OWApbs",
+    "token_type": "bearer"
+  },
+  "create_workspace": {
+    "id": 1,
+    "name": "Demo Day05 WS",
+    "owner_id": 1,
+    "created_at": "2026-07-31T10:34:50"
+  },
+  "create_project": {
+    "id": 1,
+    "workspace_id": 1,
+    "name": "Demo Project",
+    "description": "Day 05 demo",
+    "status": "ACTIVE",
+    "created_at": "2026-07-31T10:34:50"
+  },
+  "create_task": {
+    "id": 1,
+    "project_id": 1,
+    "assignee_id": null,
+    "title": "Demo Task",
+    "description": null,
+    "status": "TODO",
+    "priority": "HIGH",
+    "due_date": null,
+    "created_by": 1,
+    "created_at": "2026-07-31T10:34:50"
+  },
+  "update_status": {
+    "id": 1,
+    "project_id": 1,
+    "assignee_id": null,
+    "title": "Demo Task",
+    "description": null,
+    "status": "IN_PROGRESS",
+    "priority": "HIGH",
+    "due_date": null,
+    "created_by": 1,
+    "created_at": "2026-07-31T10:34:50"
+  },
+  "archive_project": {
+    "id": 1,
+    "workspace_id": 1,
+    "name": "Demo Project",
+    "description": "Day 05 demo",
+    "status": "ARCHIVED",
+    "created_at": "2026-07-31T10:34:50"
+  }
+}

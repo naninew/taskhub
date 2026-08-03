@@ -2,6 +2,7 @@
 # [Ngày 2] thay stub Ngày 1: get_db() giờ yield AsyncSession thật từ SQLAlchemy
 # [Ngày 3] thêm get_current_user — decode Bearer JWT, tra user_repository
 # [Ngày 4] thêm require_workspace_role — dependency factory kiểm tra RBAC workspace
+# [Ngày 5] thêm require_project_access — tái sử dụng RBAC workspace qua project
 
 from typing import Annotated, AsyncGenerator, Callable
 
@@ -11,19 +12,24 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ForbiddenException
+from app.core.exceptions import ForbiddenException, NotFoundException
 from app.core.security import decode_token
 from app.db.session import AsyncSessionLocal
 from app.models.enums import WorkspaceMemberRole
+from app.models.project import Project
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.repositories.label_repository import label_repository
+from app.repositories.project_repository import project_repository
 from app.repositories.refresh_token_repository import refresh_token_repository
+from app.repositories.task_repository import task_repository
 from app.repositories.user_repository import user_repository
 from app.repositories.workspace_member_repository import workspace_member_repository
 from app.repositories.workspace_repository import workspace_repository
 from app.services.auth_service import AuthService
 from app.services.label_service import LabelService
+from app.services.project_service import ProjectService
+from app.services.task_service import TaskService
 from app.services.user_service import UserService
 from app.services.workspace_service import WorkspaceService
 
@@ -105,6 +111,20 @@ def get_workspace_service() -> WorkspaceService:
     )
 
 
+def get_project_service() -> ProjectService:
+    """[Ngày 5] Dependency injection trả về instance ProjectService."""
+    return ProjectService(project_repo=project_repository)
+
+
+def get_task_service() -> TaskService:
+    """[Ngày 5] Dependency injection trả về instance TaskService."""
+    return TaskService(
+        task_repo=task_repository,
+        project_repo=project_repository,
+        member_repo=workspace_member_repository,
+    )
+
+
 def require_workspace_role(
     *roles: WorkspaceMemberRole,
 ) -> Callable[..., WorkspaceMember]:
@@ -135,3 +155,42 @@ def require_workspace_role(
         return membership
 
     return _check_role
+
+
+def require_project_access(
+    *roles: WorkspaceMemberRole,
+) -> Callable[..., Project]:
+    """[Ngày 5] Factory dependency — tra project → workspace → require_workspace_role."""
+
+    allowed_roles = set(roles)
+
+    async def _check_access(
+        project_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> Project:
+        project = await project_repository.get_by_id(db, project_id)
+        if project is None:
+            raise NotFoundException(
+                message="Project not found",
+                detail=f"Project id={project_id} does not exist.",
+            )
+
+        membership = await workspace_member_repository.get_membership(
+            db,
+            workspace_id=project.workspace_id,
+            user_id=current_user.id,
+        )
+        if membership is None:
+            raise ForbiddenException(
+                message="Not a workspace member",
+                detail="You must be a member to access this project.",
+            )
+        if membership.role not in allowed_roles:
+            raise ForbiddenException(
+                message="Insufficient workspace role",
+                detail=f"Required role(s): {[r.value for r in allowed_roles]}.",
+            )
+        return project
+
+    return _check_access
