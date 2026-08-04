@@ -1,6 +1,7 @@
 # [Ngày 5] TaskService — CRUD, assign, status state machine, priority/due_date
+# [Ngày 6] nâng cấp từ Ngày 5: thêm list_tasks hỗ trợ filter (status, priority, assignee) + pagination (PaginatedResponse)
 
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,8 @@ from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.task_repository import TaskRepository
 from app.repositories.workspace_member_repository import WorkspaceMemberRepository
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.common import PaginatedResponse
+from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
 
 # [Ngày 5] State machine chuyển trạng thái task
 ALLOWED_TRANSITIONS: Dict[TaskStatus, Set[TaskStatus]] = {
@@ -57,11 +59,35 @@ class TaskService:
             },
         )
 
+    # [Ngày 6] nâng cấp từ Ngày 5: thêm filter (status, priority, assignee) + pagination
     async def list_tasks(
-        self, db: AsyncSession, *, project_id: int
-    ) -> List[Task]:
-        """Danh sách task trong project (chưa filter/pagination — Ngày 6)."""
-        return await self.task_repo.list_by_project(db, project_id=project_id)
+        self,
+        db: AsyncSession,
+        *,
+        project_id: int,
+        status: Optional[TaskStatus] = None,
+        priority: Optional[TaskPriority] = None,
+        assignee_id: Optional[int] = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> PaginatedResponse[TaskRead]:
+        """Danh sách task trong project trả về PaginatedResponse[TaskRead]."""
+        items, total = await self.task_repo.list_tasks_filtered(
+            db,
+            project_id=project_id,
+            status=status,
+            priority=priority,
+            assignee_id=assignee_id,
+            page=page,
+            limit=limit,
+        )
+        task_reads = [TaskRead.model_validate(t) for t in items]
+        return PaginatedResponse[TaskRead](
+            items=task_reads,
+            total=total,
+            page=page,
+            limit=limit,
+        )
 
     async def get_task(self, db: AsyncSession, *, task_id: int) -> Task:
         """Lấy task theo ID."""

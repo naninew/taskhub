@@ -1,10 +1,11 @@
 # [Ngày 1] API Endpoints CRUD cho resource Label
 # [Ngày 2] Cập nhật: truyền db session vào service (AsyncSession thật)
+# [Ngày 6] NÂNG CẤP từ Ngày 5: thêm POST/DELETE /tasks/{task_id}/labels/{label_id} để gán/bỏ label khỏi task
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import get_db, get_label_service
+from app.api.v1.deps import CurrentUserDep, get_db, get_label_service
 from app.schemas.label import LabelCreate, LabelRead, LabelUpdate
 from app.services.label_service import LabelService
 
@@ -91,3 +92,42 @@ async def delete_label(
     """Xoá một Label khỏi project."""
     await service.delete_label(db=db, project_id=project_id, label_id=label_id)
     return {"message": f"Label {label_id} deleted successfully."}
+
+
+# [Ngày 6] NÂNG CẤP: gán/bỏ label khỏi task
+@router.post(
+    "/tasks/{task_id}/labels/{label_id}",
+    response_model=LabelRead,
+    status_code=status.HTTP_200_OK,
+    summary="Gán label cho task",
+)
+async def assign_label_to_task(
+    task_id: int,
+    label_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUserDep = None,
+    service: LabelService = Depends(get_label_service),
+) -> LabelRead:
+    """Gán label_id vào task_id (yêu cầu quyền OWNER/EDITOR trong workspace)."""
+    return await service.assign_label_to_task(
+        db=db, task_id=task_id, label_id=label_id, actor=current_user
+    )
+
+
+@router.delete(
+    "/tasks/{task_id}/labels/{label_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Bỏ label khỏi task",
+)
+async def remove_label_from_task(
+    task_id: int,
+    label_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUserDep = None,
+    service: LabelService = Depends(get_label_service),
+) -> dict[str, str]:
+    """Bỏ label_id khỏi task_id (yêu cầu quyền OWNER/EDITOR trong workspace)."""
+    await service.remove_label_from_task(
+        db=db, task_id=task_id, label_id=label_id, actor=current_user
+    )
+    return {"message": f"Label {label_id} removed from task {task_id} successfully."}

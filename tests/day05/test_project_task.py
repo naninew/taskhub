@@ -297,4 +297,8 @@ async def test_delete_task(client):
         headers=_auth_header(token),
     )
     assert list_res.status_code == 200
-    assert all(t["id"] != task_id for t in list_res.json())
+    # [Ngày 6] nâng cấp từ Ngày 5: GET /projects/{id}/tasks trả về PaginatedResponse {"items": [...]}
+    res_data = list_res.json()
+    items = res_data["items"] if isinstance(res_data, dict) and "items" in res_data else res_data
+    assert all(t["id"] != task_id for t in items)
+

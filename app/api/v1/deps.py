@@ -3,8 +3,9 @@
 # [Ngày 3] thêm get_current_user — decode Bearer JWT, tra user_repository
 # [Ngày 4] thêm require_workspace_role — dependency factory kiểm tra RBAC workspace
 # [Ngày 5] thêm require_project_access — tái sử dụng RBAC workspace qua project
+# [Ngày 6] thêm get_comment_service cho Comment API
 
-from typing import Annotated, AsyncGenerator, Callable
+from typing import Annotated, Any, AsyncGenerator, Callable, Coroutine
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -19,14 +20,17 @@ from app.models.enums import WorkspaceMemberRole
 from app.models.project import Project
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
+from app.repositories.comment_repository import comment_repository
 from app.repositories.label_repository import label_repository
 from app.repositories.project_repository import project_repository
 from app.repositories.refresh_token_repository import refresh_token_repository
+from app.repositories.task_label_repository import task_label_repository
 from app.repositories.task_repository import task_repository
 from app.repositories.user_repository import user_repository
 from app.repositories.workspace_member_repository import workspace_member_repository
 from app.repositories.workspace_repository import workspace_repository
 from app.services.auth_service import AuthService
+from app.services.comment_service import CommentService
 from app.services.label_service import LabelService
 from app.services.project_service import ProjectService
 from app.services.task_service import TaskService
@@ -86,7 +90,13 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 def get_label_service() -> LabelService:
     """Dependency injection trả về instance LabelService."""
-    return LabelService(repo=label_repository)
+    return LabelService(
+        repo=label_repository,
+        task_label_repo=task_label_repository,
+        task_repo=task_repository,
+        project_repo=project_repository,
+        member_repo=workspace_member_repository,
+    )
 
 
 def get_auth_service() -> AuthService:
@@ -125,9 +135,19 @@ def get_task_service() -> TaskService:
     )
 
 
+def get_comment_service() -> CommentService:
+    """[Ngày 6] Dependency injection trả về instance CommentService."""
+    return CommentService(
+        comment_repo=comment_repository,
+        task_repo=task_repository,
+        project_repo=project_repository,
+        member_repo=workspace_member_repository,
+    )
+
+
 def require_workspace_role(
     *roles: WorkspaceMemberRole,
-) -> Callable[..., WorkspaceMember]:
+) -> Callable[..., Coroutine[Any, Any, WorkspaceMember]]:
     """[Ngày 4] Factory dependency — kiểm tra current_user có role phù hợp trong workspace."""
 
     allowed_roles = set(roles)
@@ -159,7 +179,7 @@ def require_workspace_role(
 
 def require_project_access(
     *roles: WorkspaceMemberRole,
-) -> Callable[..., Project]:
+) -> Callable[..., Coroutine[Any, Any, Project]]:
     """[Ngày 5] Factory dependency — tra project → workspace → require_workspace_role."""
 
     allowed_roles = set(roles)

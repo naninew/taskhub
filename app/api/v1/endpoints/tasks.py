@@ -1,8 +1,9 @@
 # [Ngày 5] Task endpoints — CRUD trong project, assign, status, priority/due_date
+# [Ngày 6] NÂNG CẤP từ Ngày 5: GET /projects/{id}/tasks hỗ trợ filter (status, priority, assignee) + pagination (PaginatedResponse)
 
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.v1.deps import (
     CurrentUserDep,
@@ -10,8 +11,9 @@ from app.api.v1.deps import (
     get_task_service,
     require_project_access,
 )
-from app.models.enums import WorkspaceMemberRole
+from app.models.enums import TaskPriority, TaskStatus, WorkspaceMemberRole
 from app.models.project import Project
+from app.schemas.common import PaginatedResponse
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
 from app.services.task_service import TaskService
 
@@ -52,20 +54,33 @@ async def create_task(
     return TaskRead.model_validate(task)
 
 
+# [Ngày 6] NÂNG CẤP từ Ngày 5: GET /projects/{id}/tasks thêm filter & pagination, trả về PaginatedResponse[TaskRead]
 @router.get(
     "/projects/{project_id}/tasks",
-    response_model=List[TaskRead],
+    response_model=PaginatedResponse[TaskRead],
     status_code=status.HTTP_200_OK,
-    summary="Danh sách task trong project",
+    summary="Danh sách task trong project (filter & pagination)",
 )
 async def list_tasks(
     db: DbDep,
+    status: Optional[TaskStatus] = Query(None, description="Lọc theo trạng thái"),
+    priority: Optional[TaskPriority] = Query(None, description="Lọc theo độ ưu tiên"),
+    assignee_id: Optional[int] = Query(None, description="Lọc theo ID người được gán"),
+    page: int = Query(1, ge=1, description="Trang (bắt đầu từ 1)"),
+    limit: int = Query(20, ge=1, le=100, description="Số lượng bản ghi mỗi trang"),
     project: Project = TaskReaderDep,
     service: TaskService = Depends(get_task_service),
-) -> List[TaskRead]:
-    """List task — mọi member workspace (chưa filter/pagination — Ngày 6)."""
-    tasks = await service.list_tasks(db, project_id=project.id)
-    return [TaskRead.model_validate(t) for t in tasks]
+) -> PaginatedResponse[TaskRead]:
+    """List task — filter theo status, priority, assignee + phân trang (page, limit)."""
+    return await service.list_tasks(
+        db,
+        project_id=project.id,
+        status=status,
+        priority=priority,
+        assignee_id=assignee_id,
+        page=page,
+        limit=limit,
+    )
 
 
 @router.patch(
