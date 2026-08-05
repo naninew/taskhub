@@ -1,0 +1,20 @@
+{
+  "day": 7,
+  "cache_test": {
+    "status": "PASSED",
+    "project_id": 1,
+    "cache_key_pattern": "tasks:1:all:all:all:1:20",
+    "call_1": "DB Query -> Set Redis cache (TTL 60s)",
+    "call_2": "Redis Cache Hit -> 0 DB Query",
+    "mutation_invalidation": "create_task -> scan_iter('tasks:1:*') -> deleted 1 key",
+    "call_3": "DB Query -> Updated task list returned"
+  },
+  "background_task_test": {
+    "status": "PASSED",
+    "action": "assign_task",
+    "assignee_id": 2,
+    "user_email": "day07-assignee@example.com",
+    "task_title": "Important Background Task",
+    "background_task_triggered": true
+  }
+}

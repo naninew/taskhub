@@ -6,7 +6,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
+from app.db.redis import invalidate_project_tasks_cache
 from app.models.enums import WorkspaceMemberRole
+
 from app.models.label import Label
 from app.models.user import User
 from app.repositories.label_repository import LabelRepository, label_repository
@@ -133,6 +135,8 @@ class LabelService:
             )
 
         await self.task_label_repo.assign_label(db, task_id=task_id, label_id=label_id)
+        # [Ngày 7] Invalidate cache sau khi gán label cho task
+        await invalidate_project_tasks_cache(task.project_id)
         return label
 
     async def remove_label_from_task(
@@ -170,4 +174,8 @@ class LabelService:
                 detail="Must be workspace OWNER or EDITOR to remove labels from tasks.",
             )
 
-        return await self.task_label_repo.remove_label(db, task_id=task_id, label_id=label_id)
+        removed = await self.task_label_repo.remove_label(db, task_id=task_id, label_id=label_id)
+        # [Ngày 7] Invalidate cache sau khi bỏ label khỏi task
+        await invalidate_project_tasks_cache(task.project_id)
+        return removed
+

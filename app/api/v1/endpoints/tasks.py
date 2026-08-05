@@ -1,9 +1,10 @@
 # [Ngày 5] Task endpoints — CRUD trong project, assign, status, priority/due_date
 # [Ngày 6] NÂNG CẤP từ Ngày 5: GET /projects/{id}/tasks hỗ trợ filter (status, priority, assignee) + pagination (PaginatedResponse)
+# [Ngày 7] NÂNG CẤP từ Ngày 5-6: thêm BackgroundTasks gửi email khi assign task
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from app.api.v1.deps import (
     CurrentUserDep,
@@ -13,9 +14,11 @@ from app.api.v1.deps import (
 )
 from app.models.enums import TaskPriority, TaskStatus, WorkspaceMemberRole
 from app.models.project import Project
+from app.repositories.user_repository import user_repository
 from app.schemas.common import PaginatedResponse
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
 from app.services.task_service import TaskService
+from app.tasks.email_tasks import send_assignment_email
 
 router = APIRouter()
 
@@ -83,6 +86,7 @@ async def list_tasks(
     )
 
 
+# [Ngày 7] NÂNG CẤP từ Ngày 5: thêm tham số BackgroundTasks để gửi email notification khi gán task
 @router.patch(
     "/tasks/{task_id}",
     response_model=TaskRead,
@@ -94,9 +98,10 @@ async def update_task(
     data: TaskUpdate,
     db: DbDep,
     current_user: CurrentUserDep,
+    background_tasks: BackgroundTasks,
     service: TaskService = Depends(get_task_service),
 ) -> TaskRead:
-    """PATCH task — validate RBAC qua project của task."""
+    """PATCH task — validate RBAC qua project của task và gửi email background khi assign."""
     task = await service.get_task(db, task_id=task_id)
     check_editor = require_project_access(
         WorkspaceMemberRole.OWNER,
@@ -105,10 +110,24 @@ async def update_task(
     await check_editor(
         project_id=task.project_id, db=db, current_user=current_user
     )
+
+    old_assignee_id = task.assignee_id
     updated = await service.update_task(
         db, task=task, data=data, actor=current_user
     )
+
+    # [Ngày 7] Gọi background task gửi email nếu task được assign cho user mới
+    if data.assignee_id is not None and data.assignee_id != old_assignee_id:
+        assignee_user = await user_repository.get_by_id(db, data.assignee_id)
+        if assignee_user and assignee_user.email:
+            background_tasks.add_task(
+                send_assignment_email,
+                user_email=assignee_user.email,
+                task_title=updated.title,
+            )
+
     return TaskRead.model_validate(updated)
+
 
 
 @router.delete(

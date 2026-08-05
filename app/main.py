@@ -1,5 +1,6 @@
 # [Ngày 1] Khởi tạo FastAPI app instance với lifespan context manager và mount router
 # [Ngày 4] Đăng ký exception handler AppException + LoggingMiddleware
+# [Ngày 7] nâng cấp: kết nối và ngắt kết nối Redis trong lifespan
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -11,14 +12,18 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import logger
+from app.db.redis import close_redis, init_redis
 from app.middleware.logging_middleware import LoggingMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("TaskHub API starting up")
+    await init_redis()
     yield
+    await close_redis()
     logger.info("TaskHub API shutting down")
+
 
 
 app = FastAPI(

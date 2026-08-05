@@ -1,11 +1,15 @@
 # [Ngày 5] TaskService — CRUD, assign, status state machine, priority/due_date
 # [Ngày 6] nâng cấp từ Ngày 5: thêm list_tasks hỗ trợ filter (status, priority, assignee) + pagination (PaginatedResponse)
+# [Ngày 7] nâng cấp từ Ngày 6: tích hợp Redis cache (TTL 60s) cho list_tasks và invalidate cache khi create/update/delete task
 
+import json
 from typing import Dict, List, Optional, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
+from app.core.logging import logger
+from app.db.redis import get_redis, invalidate_project_tasks_cache
 from app.models.enums import TaskPriority, TaskStatus, WorkspaceMemberRole
 from app.models.project import Project
 from app.models.task import Task
@@ -44,9 +48,9 @@ class TaskService:
         creator: User,
         data: TaskCreate,
     ) -> Task:
-        """Tạo task — mặc định status=TODO, priority=MEDIUM (hoặc theo request)."""
+        """Tạo task — mặc định status=TODO, priority=MEDIUM (hoặc theo request) + invalidate cache."""
         priority = data.priority if data.priority is not None else TaskPriority.MEDIUM
-        return await self.task_repo.create(
+        task = await self.task_repo.create(
             db,
             obj_in={
                 "project_id": project.id,
@@ -58,8 +62,12 @@ class TaskService:
                 "created_by": creator.id,
             },
         )
+        # [Ngày 7] Invalidate cache sau khi tạo task thành công
+        await invalidate_project_tasks_cache(project.id)
+        return task
 
     # [Ngày 6] nâng cấp từ Ngày 5: thêm filter (status, priority, assignee) + pagination
+    # [Ngày 7] nâng cấp từ Ngày 6: cache Redis key "tasks:{project_id}:{status}:{priority}:{assignee_id}:{page}:{limit}" TTL 60s
     async def list_tasks(
         self,
         db: AsyncSession,
@@ -71,7 +79,24 @@ class TaskService:
         page: int = 1,
         limit: int = 20,
     ) -> PaginatedResponse[TaskRead]:
-        """Danh sách task trong project trả về PaginatedResponse[TaskRead]."""
+        """Danh sách task trong project trả về PaginatedResponse[TaskRead] với Redis Cache."""
+        status_str = status.value if status else "all"
+        priority_str = priority.value if priority else "all"
+        assignee_str = str(assignee_id) if assignee_id is not None else "all"
+        cache_key = f"tasks:{project_id}:{status_str}:{priority_str}:{assignee_str}:{page}:{limit}"
+
+        redis = await get_redis()
+        if redis:
+            try:
+                cached = await redis.get(cache_key)
+                if cached:
+                    logger.info(f"[CACHE HIT] Key: {cache_key}")
+                    data = json.loads(cached)
+                    return PaginatedResponse[TaskRead].model_validate(data)
+            except Exception as e:
+                logger.warning(f"Redis get error: {e}")
+
+        logger.info(f"[CACHE MISS] Key: {cache_key} — Fetching from DB")
         items, total = await self.task_repo.list_tasks_filtered(
             db,
             project_id=project_id,
@@ -82,12 +107,21 @@ class TaskService:
             limit=limit,
         )
         task_reads = [TaskRead.model_validate(t) for t in items]
-        return PaginatedResponse[TaskRead](
+        result = PaginatedResponse[TaskRead](
             items=task_reads,
             total=total,
             page=page,
             limit=limit,
         )
+
+        if redis:
+            try:
+                await redis.setex(cache_key, 60, result.model_dump_json())
+                logger.info(f"[CACHE SET] Key: {cache_key} (TTL 60s)")
+            except Exception as e:
+                logger.warning(f"Redis set error: {e}")
+
+        return result
 
     async def get_task(self, db: AsyncSession, *, task_id: int) -> Task:
         """Lấy task theo ID."""
@@ -107,7 +141,7 @@ class TaskService:
         data: TaskUpdate,
         actor: User,
     ) -> Task:
-        """PATCH task — validate assignee và status transition khi có."""
+        """PATCH task — validate assignee và status transition khi có + invalidate cache."""
         update_data = data.model_dump(exclude_unset=True)
 
         if "assignee_id" in update_data and update_data["assignee_id"] is not None:
@@ -126,16 +160,24 @@ class TaskService:
                 actor=actor,
             )
 
-        return await self.task_repo.update(db, db_obj=task, obj_in=update_data)
+        updated_task = await self.task_repo.update(db, db_obj=task, obj_in=update_data)
+        # [Ngày 7] Invalidate cache sau khi cập nhật task
+        await invalidate_project_tasks_cache(task.project_id)
+        return updated_task
 
     async def delete_task(self, db: AsyncSession, *, task_id: int) -> None:
-        """Xoá task theo ID."""
+        """Xoá task theo ID + invalidate cache."""
+        task = await self.get_task(db, task_id=task_id)
+        project_id = task.project_id
         deleted = await self.task_repo.delete(db, id=task_id)
         if not deleted:
             raise NotFoundException(
                 message="Task not found",
                 detail=f"Task id={task_id} does not exist.",
             )
+        # [Ngày 7] Invalidate cache sau khi xoá task
+        await invalidate_project_tasks_cache(project_id)
+
 
     async def _validate_assignee(
         self,

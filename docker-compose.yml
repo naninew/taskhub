@@ -1,0 +1,58 @@
+version: '3.8'
+
+# [Ngày 7] Docker Compose cho TaskHub (app, db, redis)
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: taskhub-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://taskhub_user:taskhub_pass@db:5432/taskhub_db
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=taskhub-docker-super-secret-key-change-in-prod
+      - ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+
+  db:
+    image: postgres:16-alpine
+    container_name: taskhub-db
+    environment:
+      - POSTGRES_DB=taskhub_db
+      - POSTGRES_USER=taskhub_user
+      - POSTGRES_PASSWORD=taskhub_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskhub_user -d taskhub_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: taskhub-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+volumes:
+  postgres_data:
