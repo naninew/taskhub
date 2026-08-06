@@ -1,12 +1,23 @@
 # TaskHub API - Task Management System
 
-## 1. Giới thiệu tổng quan
+> **Hệ thống Quản lý Công việc (Task Management API)** xây dựng bằng **FastAPI**, tuân thủ kiến trúc phân tầng (**Layered Architecture**), tích hợp **SQLAlchemy 2.x (Async)**, **Alembic**, **Redis Async Cache**, **Background Tasks**, **JWT Authentication & RBAC**, **Docker Multi-Stage Build**, và **Pydantic v2 Fail-Fast Configuration**.
 
-TaskHub là hệ thống quản lý công việc (Task Management API) được xây dựng trên nền tảng FastAPI theo kiến trúc phân tầng (Layered Architecture). Dự án được thiết kế theo mô hình phát triển tăng trưởng (incremental delivery), trong đó khung ứng dụng và cấu trúc hệ thống được thiết lập chuẩn hoá ngay từ giai đoạn đầu.
+---
 
-**Trạng thái hiện tại: Giai đoạn 7 — Caching, Background Task, Config, Docker, Logging.** Đã tích hợp thành công Redis async cache bọc quanh API `GET /projects/{id}/tasks` với cơ chế cache invalidation tự động khi có thay đổi (tạo/sửa/xoá task, gán/bỏ label), background task gửi email notification khi task được assign, cấu hình tập trung fail-fast bằng `pydantic-settings`, đóng gói multi-stage `Dockerfile`, cấu hình multi-service với `docker-compose.yml` (App + PostgreSQL + Redis), và logging có cấu trúc. Toàn bộ bộ test Ngày 1–7 pass 100% (41 tests).
+## 1. Giới thiệu Tổng quan & Trạng thái Hệ thống
 
-## 2. Công nghệ sử dụng
+**Trạng thái Dự án: HOÀN THÀNH NGÀY 8/8 — Review, Refactor & Optimization (100% Pass Rate).**
+
+Dự án đã trải qua 8 ngày phát triển tăng trưởng (incremental delivery), xây dựng từ skeleton ban đầu tới hệ thống quản lý công việc hoàn chỉnh:
+- **14/14 Hạng mục Bắt buộc** hoàn thành 100% (xem `PROGRESS.md`).
+- **45/45 Automated Integration Tests** pass 100% (xem `tests/day01` -> `tests/day08`).
+- **Code Quality**: `ruff check .` pass **0 lỗi**, `mypy app` pass **0 error**.
+- **Refactor & DRY**: Gom logic phân quyền lặp lại ở `deps.py` và `label_service.py`, chuyển đổi toàn bộ exception thô về dạng `AppException` chuẩn (`{code, message, detail}`).
+- **Performance**: Giải quyết triệt me vấn đề N+1 query bằng `selectinload` quan hệ `assignee` và `task_labels`; nâng cao tốc độ phản hồi qua Redis Async Cache (TTL 60s) kèm cơ chế tự động xoá đệm (Cache Invalidation).
+
+---
+
+## 2. Công nghệ Sử dụng
 
 - **Web Framework**: FastAPI (>= 0.111.0)
 - **ASGI Server**: Uvicorn
@@ -14,85 +25,92 @@ TaskHub là hệ thống quản lý công việc (Task Management API) được 
 - **Caching**: Redis async client (`redis.asyncio`)
 - **Background Processing**: FastAPI `BackgroundTasks`
 - **Data Validation & Configuration**: Pydantic v2 & `pydantic-settings` (`BaseSettings` fail-fast validation)
-- **Authentication & Security**: JWT (`python-jose`), password hashing (`passlib` + bcrypt)
-- **Containerization**: Docker (multi-stage build), Docker Compose
+- **Authentication & Security**: JWT Token Pair & Rotation (`python-jose`), password hashing (`passlib` + bcrypt)
+- **Code Quality & Type Safety**: Ruff (linter/formatter), Mypy (static type checker)
+- **Containerization**: Docker (multi-stage build python:3.12-slim), Docker Compose v2 (App + PostgreSQL 16 + Redis 7)
 - **Testing Framework**: Pytest, pytest-asyncio, HTTPX
-- **Runtime Environment**: Python >= 3.10
 
-## 3. DB Schema (9 bảng)
+---
+
+## 3. Cấu trúc Cơ sở Dữ liệu (9 Bảng)
 
 | # | Bảng | Mô tả |
 |---|---|---|
 | 1 | `users` | id, email, full_name, hashed_password, role, is_active, created_at |
 | 2 | `workspaces` | id, name, owner_id, created_at |
-| 3 | `workspace_members` | workspace_id, user_id, role (OWNER/EDITOR/VIEWER) |
-| 4 | `projects` | id, workspace_id, name, description, status, created_at |
-| 5 | `tasks` | id, project_id, assignee_id, title, description, status, priority, due_date, created_by, created_at |
+| 3 | `workspace_members` | workspace_id, user_id, role (`OWNER`, `EDITOR`, `VIEWER`) |
+| 4 | `projects` | id, workspace_id, name, description, status (`ACTIVE`, `ARCHIVED`), created_at |
+| 5 | `tasks` | id, project_id, assignee_id, title, description, status (`TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`), priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`), due_date, created_by, created_at |
 | 6 | `labels` | id, project_id, name, color, created_at |
 | 7 | `task_labels` | task_id, label_id |
 | 8 | `comments` | id, task_id, author_id, content, created_at |
-| 9 | `refresh_tokens` | id, token, user_id, revoked, expires_at *(Ngày 3)* |
+| 9 | `refresh_tokens` | id, token, user_id, revoked, expires_at |
 
 **Enums:** `UserRole`, `WorkspaceMemberRole`, `ProjectStatus`, `TaskStatus`, `TaskPriority` (xem `app/models/enums.py`).
 
-**Quan hệ chính:** User 1—N Workspace · User 1—N RefreshToken · Workspace N—N User (qua workspace_members) · Workspace 1—N Project · Project 1—N Task/Label · Task N—N Label (qua task_labels) · Task 1—N Comment.
+**Quan hệ chính:**
+- User 1—N Workspace · User 1—N RefreshToken
+- Workspace N—N User (qua `workspace_members`)
+- Workspace 1—N Project · Project 1—N Task/Label
+- Task N—N Label (qua `task_labels`) · Task 1—N Comment
 
-## 4. Cấu trúc ứng dụng (Layered Architecture)
+---
+
+## 4. Cấu trúc Ứng dụng (Layered Architecture)
 
 ```
 taskhub/
-├── alembic/                     # Alembic migration scripts
-│   ├── env.py                   # Async migration runner
-│   └── versions/                # init schema + refresh_tokens (Ngày 3)
-├── alembic.ini
-├── Dockerfile                   # (Ngày 7) Multi-stage Docker build
-├── docker-compose.yml           # (Ngày 7) Container orchestration (App + Postgres + Redis)
-├── .env.example                 # (Ngày 7) Sample environment variables
-├── .env                         # (Ngày 7) Local environment variables
+├── alembic/                     # Alembic migration scripts & async runner
+│   └── versions/                # Migration files (init schema & refresh_tokens)
+├── alembic.ini                  # Cấu hình Alembic DB URL
+├── Dockerfile                   # Multi-stage Docker build (builder/runner, non-root)
+├── docker-compose.yml           # Multi-service stack (App + Postgres 16 + Redis 7)
+├── .env.example                 # Biến môi trường mẫu
+├── .env                         # Biến môi trường local
+├── pyproject.toml               # Cấu hình Ruff, Mypy & Pytest
+├── requirements.txt             # Danh sách dependencies
+├── CHANGELOG.md                 # Nhật ký thay đổi append-only Ngày 1 -> 8
+├── PROGRESS.md                  # Checklist 14 hạng mục bắt buộc (100% completed)
+├── README.md                    # Tài liệu tổng quan dự án
 ├── app/
-│   ├── main.py                  # lifespan (Redis init/close Ngày 7) + exception handler + LoggingMiddleware
-│   ├── core/                    # config (fail-fast Ngày 7), logging (Ngày 7), exceptions (AppException), security
+│   ├── main.py                  # FastAPI instance, lifespan (Redis), exception handler, middleware
+│   ├── core/                    # Config (fail-fast), logging, exceptions, security (JWT/bcrypt)
 │   ├── middleware/
-│   │   └── logging_middleware.py  # log method/path/status/latency (Ngày 4)
+│   │   └── logging_middleware.py# Logging request method, path, status, latency_ms
 │   ├── api/v1/
-│   │   ├── router.py            # auth, users, workspaces, projects, tasks, labels, comments
-│   │   ├── deps.py              # get_db, get_current_user, require_workspace_role, require_project_access
-│   │   └── endpoints/           # auth, users, workspaces, projects, tasks (background email Ngày 7), labels, comments
+│   │   ├── router.py            # Mount 7 router module
+│   │   ├── deps.py              # Dependency injection: DB session, Current User, DRY RBAC verifiers
+│   │   └── endpoints/           # 7 APIRouter endpoints (auth, users, workspaces, projects, tasks, labels, comments)
 │   ├── db/
-│   │   ├── base.py
-│   │   ├── session.py           # AsyncSession engine
-│   │   └── redis.py             # (Ngày 7) Redis async client & cache invalidation
-│   ├── schemas/                 # auth, user, workspace, project, task, label, common (PaginatedResponse), comment
-│   ├── models/                  # 9 ORM models + enums
-│   ├── repositories/            # BaseRepository[T] & specialized repos
-│   ├── services/
-│   │   ├── project_service.py
-│   │   ├── task_service.py      # (Ngày 7) Redis caching & invalidation cho list_tasks
-│   │   ├── label_service.py     # (Ngày 7) Invalidate cache khi gán/bỏ label
-│   │   ├── comment_service.py
-│   │   └── workspace_service.py
+│   │   ├── base.py              # DeclarativeBase SQLAlchemy
+│   │   ├── session.py           # AsyncSession engine & sessionmaker
+│   │   └── redis.py             # Client Redis async & cache invalidation helpers
+│   ├── schemas/                 # Pydantic v2 schemas (Auth, User, Workspace, Project, Task, Label, Comment, Common)
+│   ├── models/                  # 9 ORM models SQLAlchemy 2.x
+│   ├── repositories/            # BaseRepository[T] generic CRUD & specialized repositories (eager loading optimized)
+│   ├── services/                # Business logic services (Auth, User, Workspace, Project, Task, Label, Comment)
 │   └── tasks/
-│       └── email_tasks.py       # (Ngày 7) Background email task module
-├── tests/
-│   ├── conftest.py
-│   ├── day01/test_labels.py
-│   ├── day02/test_labels_db.py
-│   ├── day03/test_auth.py
-│   ├── day04/                   # RBAC + logging middleware
-│   ├── day05/test_project_task.py
-│   ├── day06/test_label_comment_filter.py
-│   └── day07/                   # (Ngày 7) Cache invalidation & background email tests
-├── docs/                        # Logs & trace output từ Ngày 1 tới Ngày 7
-├── requirements.txt
-├── pyproject.toml
-└── README.md
+│       └── email_tasks.py       # Background email notification task
+├── tests/                       # 45 test cases tích hợp phân chia từ Ngày 1 đến 8
+│   ├── conftest.py              # Fixture DB SQLite in-memory & HTTP Client
+│   ├── day01/                   # Tests Core Label in-memory
+│   ├── day02/                   # Tests SQLAlchemy DB & Alembic
+│   ├── day03/                   # Tests Auth JWT & User management
+│   ├── day04/                   # Tests Workspace RBAC & Logging middleware
+│   ├── day05/                   # Tests Project & Task CRUD + State Machine
+│   ├── day06/                   # Tests Label-Task assignment, Comment & Filter/Pagination
+│   ├── day07/                   # Tests Redis Cache Invalidation & Background Tasks
+│   └── day08/                   # Tests OpenAPI schema, Refactored RBAC & N+1 Optimization
+└── docs/                        # Bằng chứng thật & test output logs (Ngày 1 -> 8)
 ```
 
-## 5. Hướng dẫn khởi tạo môi trường & Cấu hình (Ngày 7)
+---
 
-### 5.1. Virtual environment & Dependencies
+## 5. Hướng dẫn Khởi tạo & Cấu hình Môi trường
 
-Trải nghiệm phát triển cục bộ (Windows PowerShell):
+### 5.1. Cài đặt Virtual Environment & Dependencies
+
+Trên Windows (PowerShell):
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -100,9 +118,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 5.2. Cấu hình Fail-Fast (`pydantic-settings`)
+### 5.2. Biến môi trường Fail-Fast (`.env`)
 
-Hệ thống đọc biến môi trường từ tập tin `.env`. Các biến bắt buộc (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`) phải có giá trị, nếu thiếu ứng dụng sẽ **fail-fast** (dừng khởi động lập tức):
+Tạo tập tin `.env` từ `.env.example`. Các biến môi trường bắt buộc sẽ được kiểm tra **fail-fast** qua `pydantic-settings`:
 
 ```env
 PROJECT_NAME="TaskHub API"
@@ -114,81 +132,118 @@ JWT_ACCESS_EXPIRE_MIN=30
 JWT_REFRESH_EXPIRE_DAYS=7
 ```
 
+---
+
 ## 6. Alembic Migration
 
+Thực thi migration để cập nhật cấu trúc cơ sở dữ liệu lên phiên bản mới nhất:
+
 ```bash
-# Chạy migration
+# Thao tác upgrade cơ sở dữ liệu
 python -m alembic upgrade head
 
-# Tạo migration mới khi chỉnh sửa ORM Models
-python -m alembic revision --autogenerate -m "mo ta thay doi"
+# (Tuỳ chọn) Tạo migration tự động khi chỉnh sửa ORM Models
+python -m alembic revision --autogenerate -m "describe changes"
 python -m alembic upgrade head
 ```
 
-## 7. Chạy ứng dụng & Đóng gói Docker (Ngày 7)
+---
 
-### 7.1. Chạy Cục bộ (Local Dev)
+## 7. Chạy Ứng dụng & Docker Container
+
+### 7.1. Chạy Cục bộ (Local Development)
 
 ```bash
-# Đảm bảo Redis đang chạy (tuỳ chọn: qua Docker hoặc Redis local)
+# Đảm bảo Redis service đang khởi chạy trên port 6379
 uvicorn app.main:app --reload --port 8000
 ```
 
-- **Swagger UI**: http://127.0.0.1:8000/docs
-- **ReDoc**: http://127.0.0.1:8000/redoc
+- **Swagger UI**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **ReDoc**: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+- **OpenAPI JSON**: [http://127.0.0.1:8000/api/v1/openapi.json](http://127.0.0.1:8000/api/v1/openapi.json)
 
-### 7.2. Chạy Toàn bộ Stack bằng Docker Compose
+### 7.2. Chạy toàn bộ Stack bằng Docker Compose
 
-Đóng gói toàn bộ ứng dụng (`app`), cơ sở dữ liệu (`db` PostgreSQL 16), và bộ đệm (`redis` 7) với healthcheck đầy đủ:
+Khởi động đồng thời 3 container (`app`, `db` PostgreSQL 16 alpine, `redis` 7 alpine) với healthcheck đầy đủ:
 
 ```bash
 docker compose up -d --build
 ```
 
-Kiểm tra trạng thái các container:
+Kiểm tra trạng thái container:
 ```bash
 docker compose ps
 ```
 
-## 8. API Endpoints chính
+---
 
-Gốc đường dẫn: `/api/v1`
+## 8. Danh sách API Endpoints
 
-### Auth & User (Ngày 3)
-- `POST /api/v1/auth/register` — Đăng ký tài khoản
-- `POST /api/v1/auth/login` — Đăng nhập (nhận JWT TokenPair)
-- `POST /api/v1/auth/refresh` — Token rotation (cặp token mới)
-- `POST /api/v1/auth/logout` — Thu hồi refresh token
-- `GET/PATCH /api/v1/users/me` — Thông tin profile
-- `POST /api/v1/users/me/change-password` — Đổi mật khẩu
+Đường dẫn gốc (Prefix): `/api/v1`
 
-### Workspace & RBAC (Ngày 4)
-- `POST /api/v1/workspaces` — Tạo workspace (creator = OWNER)
-- `GET /api/v1/workspaces/{id}` — Chi tiết workspace
-- `POST/DELETE /api/v1/workspaces/{id}/members` — Quản lý thành viên workspace (OWNER only)
+### Authentication (`/auth`)
+- `POST /api/v1/auth/register` — Đăng ký tài khoản người dùng
+- `POST /api/v1/auth/login` — Đăng nhập (trả về cặp JWT Token)
+- `POST /api/v1/auth/refresh` — Token Rotation (cấp cặp token mới và thu hồi token cũ)
+- `POST /api/v1/auth/logout` — Đăng xuất (thu hồi Refresh Token)
 
-### Project (Ngày 5)
-- `POST/GET /api/v1/workspaces/{id}/projects` — Quản lý project
-- `GET/PATCH /api/v1/workspaces/{workspace_id}/projects/{id}` — Chi tiết/cập nhật project (+ archive)
+### User Management (`/users`)
+- `GET /api/v1/users/me` — Xem thông tin cá nhân hiện tại
+- `PATCH /api/v1/users/me` — Cập nhật tên/email cá nhân
+- `POST /api/v1/users/me/change-password` — Đổi mật khẩu (xác thực mật khẩu cũ)
 
-### Task, Redis Cache & Background Tasks (Ngày 5 + 6 + 7)
-- `POST /api/v1/projects/{id}/tasks` — Tạo task mới (invalidate cache project)
-- `GET /api/v1/projects/{id}/tasks` — Danh sách task có filter (`status`, `priority`, `assignee_id`) & pagination (`page`, `limit`). **Bọc Redis Cache** key pattern `tasks:{project_id}:{status}:{priority}:{assignee_id}:{page}:{limit}` (TTL 60s).
-- `PATCH /api/v1/tasks/{id}` — Cập nhật task (invalidate cache project). Nếu gán `assignee_id` mới → tự động kích hoạt **Background Task** gửi email notification.
-- `DELETE /api/v1/tasks/{id}` — Xoá task (invalidate cache project).
+### Workspace & RBAC (`/workspaces`)
+- `POST /api/v1/workspaces` — Tạo workspace mới (tự động gán người tạo = OWNER)
+- `GET /api/v1/workspaces/{id}` — Xem chi tiết workspace (yêu cầu là member)
+- `POST /api/v1/workspaces/{id}/members` — Mời thành viên bằng email (Chỉ Workspace OWNER)
+- `DELETE /api/v1/workspaces/{id}/members/{user_id}` — Xoá thành viên (Chỉ Workspace OWNER)
 
-### Task Label & Comment (Ngày 6 + 7)
-- `POST/DELETE /api/v1/tasks/{id}/labels/{label_id}` — Gán/bỏ label (invalidate cache project).
-- `POST /api/v1/tasks/{task_id}/comments` — Viết bình luận.
-- `DELETE /api/v1/comments/{id}` — Xoá bình luận (chỉ tác giả hoặc workspace OWNER/ADMIN).
+### Projects (`/workspaces/{workspace_id}/projects`)
+- `POST /api/v1/workspaces/{id}/projects` — Tạo dự án trong workspace (OWNER/EDITOR)
+- `GET /api/v1/workspaces/{id}/projects` — Danh sách dự án (Hỗ trợ `?include_archived=true`)
+- `GET /api/v1/workspaces/{workspace_id}/projects/{id}` — Chi tiết dự án
+- `PATCH /api/v1/workspaces/{workspace_id}/projects/{id}` — Cập nhật tên/mô tả dự án (OWNER/EDITOR)
+- `PATCH /api/v1/workspaces/{workspace_id}/projects/{id}/archive` — Chuyển trạng thái dự án sang ARCHIVED
 
-## 9. Kiểm thử (Automated Tests)
+### Tasks, Cache & Background Email (`/projects/{id}/tasks` & `/tasks/{id}`)
+- `POST /api/v1/projects/{id}/tasks` — Tạo công việc mới (Xoá Redis Cache)
+- `GET /api/v1/projects/{id}/tasks` — Lọc & Phân trang công việc (`status`, `priority`, `assignee_id`, `page`, `limit`). **Bọc Redis Cache (TTL 60s)**.
+- `PATCH /api/v1/tasks/{id}` — Cập nhật công việc (State Machine status, assign member, priority...). Tự động gửi **Background Email Notification** nếu đổi người thực hiện và xoá Redis Cache.
+- `DELETE /api/v1/tasks/{id}` — Xoá công việc (Xoá Redis Cache)
 
-Chạy toàn bộ bộ test tích hợp từ Ngày 1 đến Ngày 7:
+### Task Labels (`/projects/{id}/labels` & `/tasks/{id}/labels/{label_id}`)
+- `POST /api/v1/projects/{id}/labels` — Tạo nhãn mới trong dự án
+- `GET /api/v1/projects/{id}/labels` — Danh sách nhãn của dự án
+- `GET /api/v1/projects/{id}/labels/{label_id}` — Chi tiết nhãn
+- `PATCH /api/v1/projects/{id}/labels/{label_id}` — Cập nhật tên/màu nhãn
+- `DELETE /api/v1/projects/{id}/labels/{label_id}` — Xoá nhãn
+- `POST /api/v1/tasks/{id}/labels/{label_id}` — Gán nhãn vào công việc (OWNER/EDITOR)
+- `DELETE /api/v1/tasks/{id}/labels/{label_id}` — Gỡ nhãn khỏi công việc (OWNER/EDITOR)
+
+### Comments (`/tasks/{id}/comments` & `/comments/{id}`)
+- `POST /api/v1/tasks/{id}/comments` — Viết bình luận trên công việc
+- `DELETE /api/v1/comments/{id}` — Xoá bình luận (Tác giả, ADMIN hoặc Workspace OWNER)
+
+---
+
+## 9. Kiểm thử Tự động & Chất lượng Code
+
+### 9.1. Chạy Toàn bộ Test Suite
+
+Chạy 45 bài test tích hợp phủ toàn bộ các Ngày 1 -> Ngày 8:
 
 ```bash
-python -m pytest tests/day01 tests/day02 tests/day03 tests/day04 tests/day05 tests/day06 tests/day07 -v
+python -m pytest tests/ -v
 ```
 
-**Kết quả kiểm thử Ngày 7**: **41 passed** (100% pass rate).
-Logs và traces kiểm chứng lưu vết tại: `docs/day-07-cache-background-config-docker-logging/test-output/`.
+### 9.2. Kiểm tra Linting & Static Typing
+
+```bash
+# Kiểm tra linter Ruff
+python -m ruff check .
+
+# Kiểm tra static typing Mypy
+python -m mypy app
+```
+
+**Bằng chứng và log kết quả chi tiết**: Được lưu vết đầy đủ trong thư mục `docs/day-08-review-refactor-optimization/test-output/`.

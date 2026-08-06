@@ -1,8 +1,8 @@
 # [Ngày 2] Service xử lý business logic cho resource Label với AsyncSession DB thật
 # [Ngày 6] nâng cấp từ Ngày 5: bổ sung gán/bỏ label cho task qua task_label_repository
 
-from typing import List, Optional
-from fastapi import HTTPException, status
+from typing import List
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
@@ -34,6 +34,28 @@ class LabelService:
         self.project_repo = project_repo
         self.member_repo = member_repo
 
+    async def _validate_editor_access(
+        self, db: AsyncSession, project_id: int, actor: User
+    ) -> None:
+        """[Ngày 8] Helper dùng chung kiểm tra quyền OWNER/EDITOR trên project (DRY)."""
+        project = await self.project_repo.get_by_id(db, project_id)
+        if project is None:
+            raise NotFoundException(
+                message="Project not found", detail=f"Project id={project_id} does not exist."
+            )
+
+        membership = await self.member_repo.get_membership(
+            db, workspace_id=project.workspace_id, user_id=actor.id
+        )
+        if not membership or membership.role not in (
+            WorkspaceMemberRole.OWNER,
+            WorkspaceMemberRole.EDITOR,
+        ):
+            raise ForbiddenException(
+                message="Insufficient workspace role",
+                detail="Must be workspace OWNER or EDITOR to perform label operations on tasks.",
+            )
+
     async def create_label(
         self, db: AsyncSession, project_id: int, label_in: LabelCreate
     ) -> Label:
@@ -41,8 +63,8 @@ class LabelService:
             db=db, name=label_in.name, project_id=project_id
         )
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+            raise ConflictException(
+                message="Label already exists",
                 detail=f"Label with name '{label_in.name}' already exists in project {project_id}.",
             )
         return await self.repo.create_label(db=db, project_id=project_id, label_in=label_in)
@@ -52,8 +74,8 @@ class LabelService:
     ) -> Label:
         label = await self.repo.get_by_id(db=db, id=label_id)
         if not label or label.project_id != project_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+            raise NotFoundException(
+                message="Label not found",
                 detail=f"Label with id {label_id} not found in project {project_id}.",
             )
         return label
@@ -71,8 +93,8 @@ class LabelService:
                 db=db, name=label_in.name, project_id=project_id
             )
             if duplicate:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                raise ConflictException(
+                    message="Label already exists",
                     detail=f"Label with name '{label_in.name}' already exists in project {project_id}.",
                 )
 
@@ -80,8 +102,8 @@ class LabelService:
             db=db, label_id=label_id, label_in=label_in
         )
         if not updated:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+            raise NotFoundException(
+                message="Label not found",
                 detail=f"Label with id {label_id} not found in project {project_id}.",
             )
         return updated
@@ -92,7 +114,7 @@ class LabelService:
         await self.get_label(db=db, project_id=project_id, label_id=label_id)
         return await self.repo.delete_label(db=db, label_id=label_id)
 
-    # [Ngày 6] bổ sung gán/bỏ label cho task
+    # [Ngày 6, Refactor Ngày 8] bổ sung gán/bỏ label cho task dùng _validate_editor_access
     async def assign_label_to_task(
         self, db: AsyncSession, task_id: int, label_id: int, actor: User
     ) -> Label:
@@ -115,24 +137,7 @@ class LabelService:
                 detail="Label does not belong to the same project as the task.",
             )
 
-        # Kiểm tra quyền workspace OWNER / EDITOR
-        project = await self.project_repo.get_by_id(db, task.project_id)
-        if project is None:
-            raise NotFoundException(
-                message="Project not found", detail=f"Project id={task.project_id} does not exist."
-            )
-
-        membership = await self.member_repo.get_membership(
-            db, workspace_id=project.workspace_id, user_id=actor.id
-        )
-        if not membership or membership.role not in (
-            WorkspaceMemberRole.OWNER,
-            WorkspaceMemberRole.EDITOR,
-        ):
-            raise ForbiddenException(
-                message="Insufficient workspace role",
-                detail="Must be workspace OWNER or EDITOR to assign labels to tasks.",
-            )
+        await self._validate_editor_access(db, project_id=task.project_id, actor=actor)
 
         await self.task_label_repo.assign_label(db, task_id=task_id, label_id=label_id)
         # [Ngày 7] Invalidate cache sau khi gán label cho task
@@ -155,27 +160,11 @@ class LabelService:
                 message="Label not found", detail=f"Label id={label_id} does not exist."
             )
 
-        # Kiểm tra quyền workspace OWNER / EDITOR
-        project = await self.project_repo.get_by_id(db, task.project_id)
-        if project is None:
-            raise NotFoundException(
-                message="Project not found", detail=f"Project id={task.project_id} does not exist."
-            )
-
-        membership = await self.member_repo.get_membership(
-            db, workspace_id=project.workspace_id, user_id=actor.id
-        )
-        if not membership or membership.role not in (
-            WorkspaceMemberRole.OWNER,
-            WorkspaceMemberRole.EDITOR,
-        ):
-            raise ForbiddenException(
-                message="Insufficient workspace role",
-                detail="Must be workspace OWNER or EDITOR to remove labels from tasks.",
-            )
+        await self._validate_editor_access(db, project_id=task.project_id, actor=actor)
 
         removed = await self.task_label_repo.remove_label(db, task_id=task_id, label_id=label_id)
         # [Ngày 7] Invalidate cache sau khi bỏ label khỏi task
         await invalidate_project_tasks_cache(task.project_id)
         return removed
+
 

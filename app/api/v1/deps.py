@@ -145,10 +145,37 @@ def get_comment_service() -> CommentService:
     )
 
 
+async def _verify_workspace_membership(
+    db: AsyncSession,
+    *,
+    workspace_id: int,
+    user_id: int,
+    allowed_roles: set[WorkspaceMemberRole],
+    resource_type: str = "workspace",
+) -> WorkspaceMember:
+    """[Ngày 8] Helper dùng chung kiểm tra tư cách thành viên và vai trò trong workspace (DRY)."""
+    membership = await workspace_member_repository.get_membership(
+        db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    if membership is None:
+        raise ForbiddenException(
+            message="Not a workspace member",
+            detail=f"You must be a member to access this {resource_type}.",
+        )
+    if membership.role not in allowed_roles:
+        raise ForbiddenException(
+            message="Insufficient workspace role",
+            detail=f"Required role(s): {[r.value for r in allowed_roles]}.",
+        )
+    return membership
+
+
 def require_workspace_role(
     *roles: WorkspaceMemberRole,
 ) -> Callable[..., Coroutine[Any, Any, WorkspaceMember]]:
-    """[Ngày 4] Factory dependency — kiểm tra current_user có role phù hợp trong workspace."""
+    """[Ngày 4, Refactor Ngày 8] Factory dependency — kiểm tra current_user có role phù hợp trong workspace."""
 
     allowed_roles = set(roles)
 
@@ -157,22 +184,13 @@ def require_workspace_role(
         db: DbDep,
         current_user: CurrentUserDep,
     ) -> WorkspaceMember:
-        membership = await workspace_member_repository.get_membership(
+        return await _verify_workspace_membership(
             db,
             workspace_id=workspace_id,
             user_id=current_user.id,
+            allowed_roles=allowed_roles,
+            resource_type="workspace",
         )
-        if membership is None:
-            raise ForbiddenException(
-                message="Not a workspace member",
-                detail="You must be a member to access this workspace.",
-            )
-        if membership.role not in allowed_roles:
-            raise ForbiddenException(
-                message="Insufficient workspace role",
-                detail=f"Required role(s): {[r.value for r in allowed_roles]}.",
-            )
-        return membership
 
     return _check_role
 
@@ -180,7 +198,7 @@ def require_workspace_role(
 def require_project_access(
     *roles: WorkspaceMemberRole,
 ) -> Callable[..., Coroutine[Any, Any, Project]]:
-    """[Ngày 5] Factory dependency — tra project → workspace → require_workspace_role."""
+    """[Ngày 5, Refactor Ngày 8] Factory dependency — tra project → workspace → verify membership."""
 
     allowed_roles = set(roles)
 
@@ -196,21 +214,14 @@ def require_project_access(
                 detail=f"Project id={project_id} does not exist.",
             )
 
-        membership = await workspace_member_repository.get_membership(
+        await _verify_workspace_membership(
             db,
             workspace_id=project.workspace_id,
             user_id=current_user.id,
+            allowed_roles=allowed_roles,
+            resource_type="project",
         )
-        if membership is None:
-            raise ForbiddenException(
-                message="Not a workspace member",
-                detail="You must be a member to access this project.",
-            )
-        if membership.role not in allowed_roles:
-            raise ForbiddenException(
-                message="Insufficient workspace role",
-                detail=f"Required role(s): {[r.value for r in allowed_roles]}.",
-            )
         return project
 
     return _check_access
+

@@ -20,6 +20,10 @@ router = APIRouter()
     response_model=WorkspaceRead,
     status_code=status.HTTP_201_CREATED,
     summary="Tạo workspace mới",
+    description="Tạo một workspace mới. Người tạo tự động được gán quyền OWNER.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+    },
 )
 async def create_workspace(
     data: WorkspaceCreate,
@@ -37,6 +41,12 @@ async def create_workspace(
     response_model=WorkspaceRead,
     status_code=status.HTTP_200_OK,
     summary="Chi tiết workspace",
+    description="Lấy chi tiết không gian làm việc. Yêu cầu có quyền thành viên trong workspace.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không có quyền truy cập workspace (chưa là member)"},
+        404: {"description": "Workspace không tồn tại"},
+    },
 )
 async def get_workspace(
     workspace_id: int,
@@ -63,6 +73,13 @@ async def get_workspace(
     response_model=MemberRead,
     status_code=status.HTTP_201_CREATED,
     summary="Mời member vào workspace",
+    description="Mời người dùng vào workspace bằng email (Chỉ Workspace OWNER có quyền).",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Yêu cầu quyền Workspace OWNER"},
+        404: {"description": "Không tìm thấy user với email được mời"},
+        409: {"description": "User đã là thành viên của workspace"},
+    },
 )
 async def invite_member(
     workspace_id: int,
@@ -92,6 +109,13 @@ async def invite_member(
     "/{workspace_id}/members/{user_id}",
     status_code=status.HTTP_200_OK,
     summary="Xoá member khỏi workspace",
+    description="Xoá thành viên khỏi workspace (Chỉ Workspace OWNER; không thể xoá OWNER duy nhất còn lại).",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Yêu cầu quyền Workspace OWNER"},
+        404: {"description": "Thành viên không tồn tại trong workspace"},
+        409: {"description": "Không thể xoá OWNER duy nhất còn lại của workspace"},
+    },
 )
 async def remove_member(
     workspace_id: int,

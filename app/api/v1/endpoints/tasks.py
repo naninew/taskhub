@@ -2,7 +2,7 @@
 # [Ngày 6] NÂNG CẤP từ Ngày 5: GET /projects/{id}/tasks hỗ trợ filter (status, priority, assignee) + pagination (PaginatedResponse)
 # [Ngày 7] NÂNG CẤP từ Ngày 5-6: thêm BackgroundTasks gửi email khi assign task
 
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
@@ -42,6 +42,12 @@ TaskReaderDep = Depends(
     response_model=TaskRead,
     status_code=status.HTTP_201_CREATED,
     summary="Tạo task trong project",
+    description="Tạo một task mới trong dự án. Tự động xóa Redis Cache danh sách task của project.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền (Cần vai trò OWNER hoặc EDITOR trong workspace)"},
+        404: {"description": "Project không tồn tại"},
+    },
 )
 async def create_task(
     data: TaskCreate,
@@ -57,12 +63,18 @@ async def create_task(
     return TaskRead.model_validate(task)
 
 
-# [Ngày 6] NÂNG CẤP từ Ngày 5: GET /projects/{id}/tasks thêm filter & pagination, trả về PaginatedResponse[TaskRead]
+# [Ngày 6, 7] GET /projects/{id}/tasks hỗ trợ filter, pagination & Redis Cache (TTL 60s)
 @router.get(
     "/projects/{project_id}/tasks",
     response_model=PaginatedResponse[TaskRead],
     status_code=status.HTTP_200_OK,
     summary="Danh sách task trong project (filter & pagination)",
+    description="Lấy danh sách task phân trang và hỗ trợ lọc theo status, priority, assignee_id. Tích hợp Redis async cache.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không có quyền truy cập project"},
+        404: {"description": "Project không tồn tại"},
+    },
 )
 async def list_tasks(
     db: DbDep,
@@ -92,6 +104,13 @@ async def list_tasks(
     response_model=TaskRead,
     status_code=status.HTTP_200_OK,
     summary="Cập nhật task (assign, status, priority, due_date...)",
+    description="Cập nhật task (chuyển trạng thái theo state machine, đổi độ ưu tiên, assign member). Tự động xóa Redis Cache và gửi Background Email nếu đổi người được gán.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền cập nhật task"},
+        404: {"description": "Task hoặc Project không tồn tại"},
+        409: {"description": "Chuyển trạng thái task không hợp lệ hoặc assignee không phải thành viên workspace"},
+    },
 )
 async def update_task(
     task_id: int,
@@ -129,11 +148,16 @@ async def update_task(
     return TaskRead.model_validate(updated)
 
 
-
 @router.delete(
     "/tasks/{task_id}",
     status_code=status.HTTP_200_OK,
     summary="Xoá task",
+    description="Xoá một task khỏi dự án. Tự động xóa Redis Cache danh sách task.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền xóa task"},
+        404: {"description": "Task không tồn tại"},
+    },
 )
 async def delete_task(
     task_id: int,

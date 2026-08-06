@@ -16,6 +16,11 @@ router = APIRouter()
     response_model=UserRead,
     status_code=status.HTTP_201_CREATED,
     summary="Đăng ký tài khoản mới",
+    description="Đăng ký tài khoản người dùng mới hệ thống với email, tên đầy đủ và mật khẩu.",
+    responses={
+        400: {"description": "Dữ liệu không hợp lệ hoặc thiếu thông tin bắt buộc"},
+        409: {"description": "Email đã được đăng ký trong hệ thống"},
+    },
 )
 async def register(
     data: RegisterRequest,
@@ -32,6 +37,10 @@ async def register(
     response_model=TokenPair,
     status_code=status.HTTP_200_OK,
     summary="Đăng nhập — nhận access + refresh token",
+    description="Xác thực người dùng bằng email và mật khẩu, trả về cặp JWT Access Token và Refresh Token.",
+    responses={
+        401: {"description": "Email hoặc mật khẩu không chính xác"},
+    },
 )
 async def login(
     data: LoginRequest,
@@ -47,6 +56,10 @@ async def login(
     response_model=TokenPair,
     status_code=status.HTTP_200_OK,
     summary="Đổi refresh token lấy cặp token mới",
+    description="Xử lý Token Rotation: nhận Refresh Token cũ, thu hồi nó và cấp lại cặp token mới.",
+    responses={
+        401: {"description": "Refresh token không hợp lệ, đã hết hạn hoặc đã bị thu hồi"},
+    },
 )
 async def refresh_token(
     data: RefreshRequest,
@@ -61,6 +74,10 @@ async def refresh_token(
     "/logout",
     status_code=status.HTTP_200_OK,
     summary="Đăng xuất — revoke refresh token",
+    description="Thu hồi Refresh Token hiện tại, vô hiệu hóa việc gia hạn session.",
+    responses={
+        401: {"description": "Refresh token không hợp lệ hoặc đã thu hồi"},
+    },
 )
 async def logout(
     data: RefreshRequest,

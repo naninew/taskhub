@@ -5,7 +5,6 @@ from typing import List
 from fastapi import APIRouter, Depends, Query, status
 
 from app.api.v1.deps import (
-    CurrentUserDep,
     DbDep,
     get_project_service,
     require_workspace_role,
@@ -22,6 +21,11 @@ router = APIRouter()
     response_model=ProjectRead,
     status_code=status.HTTP_201_CREATED,
     summary="Tạo project trong workspace",
+    description="Tạo một dự án mới thuộc workspace (Chỉ Workspace OWNER hoặc EDITOR có quyền).",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền (Cần vai trò OWNER hoặc EDITOR trong workspace)"},
+    },
 )
 async def create_project(
     workspace_id: int,
@@ -47,6 +51,11 @@ async def create_project(
     response_model=List[ProjectRead],
     status_code=status.HTTP_200_OK,
     summary="Danh sách project trong workspace",
+    description="Lấy danh sách các project thuộc workspace. Hỗ trợ query flag include_archived để xem dự án đã lưu trữ.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không có quyền truy cập workspace"},
+    },
 )
 async def list_projects(
     workspace_id: int,
@@ -78,6 +87,12 @@ async def list_projects(
     response_model=ProjectRead,
     status_code=status.HTTP_200_OK,
     summary="Chi tiết project",
+    description="Lấy chi tiết một dự án thuộc workspace.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không có quyền truy cập workspace"},
+        404: {"description": "Project không tồn tại trong workspace"},
+    },
 )
 async def get_project(
     workspace_id: int,
@@ -104,6 +119,13 @@ async def get_project(
     response_model=ProjectRead,
     status_code=status.HTTP_200_OK,
     summary="Cập nhật project",
+    description="Cập nhật tên hoặc mô tả dự án (Chỉ Workspace OWNER hoặc EDITOR có quyền).",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền cập nhật project"},
+        404: {"description": "Project không tồn tại"},
+        409: {"description": "Không thể cập nhật project đã bị archive"},
+    },
 )
 async def update_project(
     workspace_id: int,
@@ -133,6 +155,13 @@ async def update_project(
     response_model=ProjectRead,
     status_code=status.HTTP_200_OK,
     summary="Archive project",
+    description="Chuyển trạng thái dự án sang ARCHIVED (Soft delete/Archive, không xóa dữ liệu).",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền archive project"},
+        404: {"description": "Project không tồn tại"},
+        409: {"description": "Project đã ở trạng thái ARCHIVED từ trước"},
+    },
 )
 async def archive_project(
     workspace_id: int,

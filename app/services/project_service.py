@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictException, NotFoundException
 from app.models.enums import ProjectStatus
 from app.models.project import Project
-from app.models.user import User
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.project import ProjectCreate, ProjectUpdate
 

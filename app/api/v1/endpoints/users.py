@@ -15,6 +15,10 @@ router = APIRouter()
     response_model=UserRead,
     status_code=status.HTTP_200_OK,
     summary="Lấy profile user hiện tại",
+    description="Trả về thông tin chi tiết tài khoản của người dùng đang đăng nhập.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+    },
 )
 async def get_me(current_user: CurrentUserDep) -> UserRead:
     """Trả về thông tin profile của user đang đăng nhập."""
@@ -26,6 +30,11 @@ async def get_me(current_user: CurrentUserDep) -> UserRead:
     response_model=UserRead,
     status_code=status.HTTP_200_OK,
     summary="Cập nhật profile user hiện tại",
+    description="Cập nhật tên đầy đủ hoặc email của người dùng đang đăng nhập.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        409: {"description": "Email mới đã tồn tại trên tài khoản khác"},
+    },
 )
 async def update_me(
     data: UserUpdate,
@@ -42,6 +51,11 @@ async def update_me(
     "/me/change-password",
     status_code=status.HTTP_200_OK,
     summary="Đổi mật khẩu",
+    description="Đổi mật khẩu người dùng hiện tại (yêu cầu xác thực mật khẩu cũ).",
+    responses={
+        400: {"description": "Mật khẩu cũ không chính xác"},
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+    },
 )
 async def change_password(
     data: ChangePasswordRequest,

@@ -17,6 +17,11 @@ router = APIRouter()
     response_model=LabelRead,
     status_code=status.HTTP_201_CREATED,
     summary="Tạo label mới cho project",
+    description="Tạo một Label mới thuộc dự án.",
+    responses={
+        400: {"description": "Label cùng tên đã tồn tại trong project"},
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+    },
 )
 async def create_label(
     project_id: int,
@@ -33,6 +38,10 @@ async def create_label(
     response_model=list[LabelRead],
     status_code=status.HTTP_200_OK,
     summary="Lấy danh sách label của project",
+    description="Lấy tất cả các nhãn (Label) đã tạo trong dự án.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+    },
 )
 async def list_labels(
     project_id: int,
@@ -48,6 +57,11 @@ async def list_labels(
     response_model=LabelRead,
     status_code=status.HTTP_200_OK,
     summary="Lấy chi tiết label",
+    description="Lấy chi tiết thông tin một Label.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        404: {"description": "Label không tồn tại trong project"},
+    },
 )
 async def get_label(
     project_id: int,
@@ -64,6 +78,12 @@ async def get_label(
     response_model=LabelRead,
     status_code=status.HTTP_200_OK,
     summary="Cập nhật label",
+    description="Cập nhật tên hoặc màu sắc của Label.",
+    responses={
+        400: {"description": "Tên label mới bị trùng lặp trong project"},
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        404: {"description": "Label không tồn tại"},
+    },
 )
 async def update_label(
     project_id: int,
@@ -82,6 +102,11 @@ async def update_label(
     "/projects/{project_id}/labels/{label_id}",
     status_code=status.HTTP_200_OK,
     summary="Xoá label",
+    description="Xoá một Label khỏi dự án.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        404: {"description": "Label không tồn tại"},
+    },
 )
 async def delete_label(
     project_id: int,
@@ -100,12 +125,19 @@ async def delete_label(
     response_model=LabelRead,
     status_code=status.HTTP_200_OK,
     summary="Gán label cho task",
+    description="Gán nhãn vào task (Yêu cầu vai trò OWNER hoặc EDITOR trong workspace). Tự động xóa Redis Cache danh sách task.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền (Cần Workspace OWNER hoặc EDITOR)"},
+        404: {"description": "Task hoặc Label không tồn tại"},
+        409: {"description": "Label không thuộc cùng project với Task"},
+    },
 )
 async def assign_label_to_task(
     task_id: int,
     label_id: int,
+    current_user: CurrentUserDep,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUserDep = None,
     service: LabelService = Depends(get_label_service),
 ) -> LabelRead:
     """Gán label_id vào task_id (yêu cầu quyền OWNER/EDITOR trong workspace)."""
@@ -118,12 +150,18 @@ async def assign_label_to_task(
     "/tasks/{task_id}/labels/{label_id}",
     status_code=status.HTTP_200_OK,
     summary="Bỏ label khỏi task",
+    description="Gỡ bỏ nhãn khỏi task. Tự động xóa Redis Cache danh sách task.",
+    responses={
+        401: {"description": "Chưa đăng nhập hoặc token hết hạn"},
+        403: {"description": "Không đủ quyền (Cần Workspace OWNER hoặc EDITOR)"},
+        404: {"description": "Task hoặc Label không tồn tại"},
+    },
 )
 async def remove_label_from_task(
     task_id: int,
     label_id: int,
+    current_user: CurrentUserDep,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUserDep = None,
     service: LabelService = Depends(get_label_service),
 ) -> dict[str, str]:
     """Bỏ label_id khỏi task_id (yêu cầu quyền OWNER/EDITOR trong workspace)."""

@@ -1,0 +1,71 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TaskHub API",
+    "description": "Hệ thống quản lý công việc (Task Management API) xây dựng với FastAPI, SQLAlchemy 2.x, Redis Async Cache, JWT Authentication và RBAC.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Đăng ký tài khoản mới",
+        "description": "Đăng ký tài khoản người dùng mới hệ thống với email, tên đầy đủ và mật khẩu.",
+        "operationId": "register_api_v1_auth_register_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserRead" } } }
+          },
+          "400": { "description": "Dữ liệu không hợp lệ hoặc thiếu thông tin bắt buộc" },
+          "409": { "description": "Email đã được đăng ký trong hệ thống" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Đăng nhập — nhận access + refresh token",
+        "description": "Xác thực người dùng bằng email và mật khẩu, trả về cặp JWT Access Token và Refresh Token.",
+        "operationId": "login_api_v1_auth_login_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPair" } } }
+          },
+          "401": { "description": "Email hoặc mật khẩu không chính xác" }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks": {
+      "get": {
+        "tags": ["tasks"],
+        "summary": "Danh sách task trong project (filter & pagination)",
+        "description": "Lấy danh sách task phân trang và hỗ trợ lọc theo status, priority, assignee_id. Tích hợp Redis async cache.",
+        "operationId": "list_tasks_api_v1_projects__project_id__tasks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedResponse_TaskRead_" } } }
+          },
+          "401": { "description": "Chưa đăng nhập hoặc token hết hạn" },
+          "403": { "description": "Không có quyền truy cập project" },
+          "404": { "description": "Project không tồn tại" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/api/v1/auth/login"
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.enums import TaskPriority, TaskStatus
 from app.models.task import Task
@@ -21,12 +22,13 @@ class TaskRepository(BaseRepository[Task]):
         """Danh sách task thuộc project (giữ lại từ Ngày 5)."""
         result = await db.execute(
             select(Task)
+            .options(selectinload(Task.assignee), selectinload(Task.task_labels))
             .where(Task.project_id == project_id)
             .order_by(Task.created_at.desc())
         )
         return list(result.scalars().all())
 
-    # [Ngày 6] nâng cấp từ Ngày 5: hàm list với filtering (status, priority, assignee_id) + pagination
+    # [Ngày 6, Refactor Ngày 8] NÂNG CẤP: thêm selectinload(assignee, task_labels) giải quyết triệt để N+1 query
     async def list_tasks_filtered(
         self,
         db: AsyncSession,
@@ -38,8 +40,12 @@ class TaskRepository(BaseRepository[Task]):
         page: int = 1,
         limit: int = 20,
     ) -> Tuple[List[Task], int]:
-        """Danh sách task thuộc project có hỗ trợ filter và phân trang page/limit."""
-        stmt = select(Task).where(Task.project_id == project_id)
+        """Danh sách task thuộc project hỗ trợ filter, phân trang & eager loading quan hệ."""
+        stmt = (
+            select(Task)
+            .options(selectinload(Task.assignee), selectinload(Task.task_labels))
+            .where(Task.project_id == project_id)
+        )
 
         if status is not None:
             stmt = stmt.where(Task.status == status)
@@ -64,6 +70,7 @@ class TaskRepository(BaseRepository[Task]):
         items = list(result.scalars().all())
 
         return items, total
+
 
 
 task_repository = TaskRepository()

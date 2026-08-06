@@ -28,6 +28,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
+    description="Hệ thống quản lý công việc (Task Management API) xây dựng với FastAPI, SQLAlchemy 2.x, Redis Async Cache, JWT Authentication và RBAC.",
+    version="1.0.0",
     lifespan=lifespan,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
